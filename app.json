@@ -13,7 +13,6 @@
     },
     "android": {
       "userInterfaceStyle": "light",
-
       "permissions": [
         "WRITE_EXTERNAL_STORAGE"
       ],
@@ -37,7 +36,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
