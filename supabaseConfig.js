@@ -1,13 +1,32 @@
-// Import the Supabase client
-import { createClient } from '@supabase/supabase-js'
+import 'react-native-url-polyfill/auto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
 
-// Your Supabase project configuration
-const supabaseUrl = 'https://yxejqvbgzndxrhoyylfi.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4ZWpxdmJnem5keHJob3l5bGZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0NDI3MTQsImV4cCI6MjA2NjAxODcxNH0.1PaaKC550EIxNUjeeWkgRprGX51_2lcrFg5_1oxavk4'
+const supabaseUrl = 'https://ton-projet-id.supabase.co'; 
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; 
 
-// Create and export the Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const ssrSafeStorage = {
+  getItem: async (key) => {
+    if (typeof window === 'undefined') {
+      return null; 
+    }
+    return AsyncStorage.getItem(key); 
+  },
+  setItem: async (key, value) => {
+    if (typeof window === 'undefined') return;
+    return AsyncStorage.setItem(key, value);
+  },
+  removeItem: async (key) => {
+    if (typeof window === 'undefined') return;
+    return AsyncStorage.removeItem(key);
+  },
+};
 
-// Optional: Export individual services if needed
-export const supabaseAuth = supabase.auth
-export const supabaseStorage = supabase.storage
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: ssrSafeStorage, 
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
