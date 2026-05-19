@@ -29,7 +29,7 @@ export default function InventoryScreen() {
   
   // États de données
   const [items, setItems] = useState<Item[]>([]);
-  const [Category, setCategory] = useState<Category[]>([]);
+  const [Categories, setCategory] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
   // États pour les filtres et la recherche
@@ -178,7 +178,7 @@ export default function InventoryScreen() {
             </Text>
           </TouchableOpacity>
 
-          {Category.map((cat) => (
+          {Categories.map((cat) => (
             <TouchableOpacity
               key={cat.id}
               style={[styles.categoryTab, selectedCategoryId === cat.id && styles.activeCategoryTab]}
