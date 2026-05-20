@@ -73,6 +73,10 @@ export default function StackLayout() {
               <Text style={[styles.menuItemText, { color: themeColors.text }]}>Locations</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/profile")}>
+              <Text style={[styles.menuItemText, { color: themeColors.text }]}>Profil</Text>
+            </TouchableOpacity>
+
           </View>
         </TouchableOpacity>
       </Modal>
