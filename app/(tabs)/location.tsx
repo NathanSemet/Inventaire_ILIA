@@ -1,230 +1,192 @@
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  ActivityIndicator,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
-  Modal,
+  View, Text, StyleSheet, FlatList, ActivityIndicator,
+  TextInput, TouchableOpacity, Alert, ScrollView, Modal,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/supabaseConfig";
 
-type SupabaseLocationData = {
-  id: string;
-  date_location: string;
-  date_remise: string;
-  id_emprunteur: string;
-  id_preteur: string;
-  id_materiel: string;
+// ---- TYPES ----
+type Item = {
+  id: number;
+  serial_number: string;
+  status: string;
+  model_materiel?: { nom: string } | null;
+};
 
-  locataire: {
-    id: string;
-    nom: string;
-    email?: string;
-    est_preteur: boolean;
-  }[];
-  loueur: {
-    id: string;
-    nom: string;
-    email?: string;
-    est_preteur: boolean;
-  }[];
-  materiel: {
-    id: string;
-    nom: string;
-    nombre?: number;
-  }[];
+type User = {
+  id: number;
+  nom: string;
+  email: string;
+  member_ILIA: boolean;
 };
 
 type LocationWithDetails = {
-  id: string;
-  date_location: string;
-  date_remise: string;
-  id_emprunteur: string;
-  id_preteur: string;
-  id_materiel: string;
-
-  locataire: {
-    id: string;
-    nom: string;
-    email?: string;
-    est_preteur: boolean;
-  };
-  loueur: {
-    id: string;
-    nom: string;
-    email?: string;
-    est_preteur: boolean;
-  };
-  materiel: {
-    id: string;
-    nom: string;
-    nombre?: number;
-  };
-};
-
-type Materiel = {
-  id: string;
-  nom: string;
-  nombre: number;
-};
-
-type Utilisateur = {
-  id: string;
-  nom: string;
-  email?: string;
-  est_preteur: boolean;
+  id: number;
+  id_item: number;
+  id_lender: number;
+  id_borrower: number;
+  location_date: string;
+  return_date: string;
+  effective_return_date?: string;
+  return_state?: string;
+  item?: {
+    serial_number: string;
+    model_materiel?: { nom: string } | null;
+  } | null;
+  lender?: { id: number; nom: string; email: string } | null;
+  borrower?: { id: number; nom: string; email: string } | null;
 };
 
 type FormData = {
-  preteurId: string;
+  lenderId: string;
   nomEmprunteur: string;
   emailEmprunteur: string;
-  materielId: string;
-  datePret: string;
-  dateRemise: string;
+  itemId: string;
+  locationDate: string;
+  returnDate: string;
 };
 
+// ---- COMPOSANT ----
 const LocationScreen = () => {
   const router = useRouter();
+  const params = useLocalSearchParams();
+
+  // États principaux
   const [locations, setLocations] = useState<LocationWithDetails[]>([]);
-  const [materiel, setMateriels] = useState<Materiel[]>([]);
-  const [preteurs, setPreteurs] = useState<Utilisateur[]>([]);
+  const [availableItems, setAvailableItems] = useState<Item[]>([]);
+  const [lenders, setLenders] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [showMaterielPicker, setShowMaterielPicker] = useState(false);
-  const [showPreteurPicker, setShowPreteurPicker] = useState(false);
+  const [deleting, setDeleting] = useState<number | null>(null);
 
+  // États UI
+  const [showForm, setShowForm] = useState(false);
+  const [showItemPicker, setShowItemPicker] = useState(false);
+  const [showLenderPicker, setShowLenderPicker] = useState(false);
+
+  // Bouton suppression d'une location
+  // Nouvel état pour notre alerte personnalisée
+  const [itemToDelete, setItemToDelete] = useState<{ locationId: number; itemId: number } | null>(null);
+  // Formulaire
   const [formData, setFormData] = useState<FormData>({
-    preteurId: "",
+    lenderId: "",
     nomEmprunteur: "",
     emailEmprunteur: "",
-    materielId: "",
-    datePret: "",
-    dateRemise: "",
+    itemId: "",
+    locationDate: "",
+    returnDate: "",
   });
+
+  // Si on arrive depuis index.tsx avec un itemId en paramètre
+  useEffect(() => {
+    if (params.itemId) {
+      setFormData((prev) => ({ ...prev, itemId: params.itemId as string }));
+      setShowForm(true);
+    }
+  }, [params.itemId]);
 
   useEffect(() => {
     fetchLocations();
-    fetchMateriels();
-    fetchPreteurs();
+    fetchAvailableItems();
+    fetchLenders();
   }, []);
+
+  // ---- CHARGEMENT DES DONNÉES ----
 
   const fetchLocations = async () => {
     try {
-      const { data, error } = await supabase.from("location").select(`
+      const { data, error } = await supabase
+        .from("Location")
+        .select(`
           id,
-          date_location,
-          date_remise,
-          id_emprunteur,
-          id_preteur,
-          id_materiel,
-          locataire:utilisateur!location_id_emprunteur_fkey (
-            id,
-            nom,
-            email,
-            est_preteur
+          id_item,
+          id_lender,
+          id_borrower,
+          location_date,
+          return_date,
+          effective_return_date,
+          return_state,
+          item:items (
+            serial_number,
+            model_materiel ( nom )
           ),
-          loueur:utilisateur!location_id_preteur_fkey (
-            id,
-            nom, 
-            email,
-            est_preteur
-          ),
-          materiel:materiel!location_id_materiel_fkey (
-            id,
-            nom,
-            nombre
-          )
+          lender:users!Location_id_lender_fkey ( id, nom, email ),
+          borrower:users!Location_id_borrower_fkey ( id, nom, email )
         `);
 
-      console.log("Données récupérées:", data);
-
       if (error) {
-        console.error("Erreur Supabase :", error);
+        console.error("Erreur chargement locations:", error);
         return;
       }
 
-      const transformedData: LocationWithDetails[] = (
-        (data as SupabaseLocationData[]) || []
-      ).map((item) => {
-        console.log("Item avant transformation:", item);
-        const transformed = {
-          ...item,
-          locataire: Array.isArray(item.locataire)
-            ? item.locataire[0]
-            : item.locataire,
-          loueur: Array.isArray(item.loueur) ? item.loueur[0] : item.loueur,
-          materiel: Array.isArray(item.materiel)
-            ? item.materiel[0]
-            : item.materiel,
-        };
-        console.log("Item après transformation:", transformed);
-        return transformed;
-      });
+      // Normalise les tableaux retournés par Supabase en objets simples
+      const formatted: LocationWithDetails[] = (data || []).map((loc: any) => ({
+        ...loc,
+        item: Array.isArray(loc.item) ? loc.item[0] : loc.item,
+        lender: Array.isArray(loc.lender) ? loc.lender[0] : loc.lender,
+        borrower: Array.isArray(loc.borrower) ? loc.borrower[0] : loc.borrower,
+      }));
 
-      console.log("Données transformées:", transformedData);
-      setLocations(transformedData);
-    } catch (error) {
-      console.error("Erreur lors de la récupération des locations :", error);
+      setLocations(formatted);
+    } catch (err) {
+      console.error("Erreur fetchLocations:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMateriels = async () => {
+  // Uniquement les items disponibles pour le formulaire
+  const fetchAvailableItems = async () => {
     try {
       const { data, error } = await supabase
-        .from("materiel")
-        .select("id, nom, nombre")
-        .order("nom");
+        .from("items")
+        .select("id, serial_number, status, model_materiel(nom)")
+        .eq("status", "disponible")
+        .order("id");
 
       if (error) {
-        console.error("Erreur lors de la récupération des composants :", error);
+        console.error("Erreur chargement items:", error);
         return;
       }
 
-      setMateriels(data || []);
-    } catch (error) {
-      console.error("Erreur lors de la récupération des composants :", error);
+      const formatted: Item[] = (data || []).map((item: any) => ({
+        ...item,
+        model_materiel: Array.isArray(item.model_materiel)
+          ? item.model_materiel[0]
+          : item.model_materiel,
+      }));
+
+      setAvailableItems(formatted);
+    } catch (err) {
+      console.error("Erreur fetchAvailableItems:", err);
     }
   };
 
-  const fetchPreteurs = async () => {
+  // Les prêteurs sont les membres ILIA (member_ILIA = true)
+  const fetchLenders = async () => {
     try {
       const { data, error } = await supabase
-        .from("utilisateur")
-        .select("id, nom, email, est_preteur")
-        .eq("est_preteur", true)
+        .from("users")
+        .select("id, nom, email, member_ILIA")
+        .eq("member_ILIA", true)
         .order("nom");
 
       if (error) {
-        console.error("Erreur lors de la récupération des prêteurs :", error);
+        console.error("Erreur chargement prêteurs:", error);
         return;
       }
 
-      setPreteurs(data || []);
-    } catch (error) {
-      console.error("Erreur lors de la récupération des prêteurs :", error);
+      setLenders(data || []);
+    } catch (err) {
+      console.error("Erreur fetchLenders:", err);
     }
   };
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
+  // ---- VALIDATION ----
 
   const validateForm = (): boolean => {
-    if (!formData.preteurId.trim()) {
+    if (!formData.lenderId) {
       Alert.alert("Erreur", "Veuillez sélectionner un prêteur");
       return false;
     }
@@ -236,820 +198,566 @@ const LocationScreen = () => {
       Alert.alert("Erreur", "L'email de l'emprunteur est requis");
       return false;
     }
-    if (!formData.materielId.trim()) {
-      Alert.alert("Erreur", "Veuillez sélectionner un composant");
-      return false;
-    }
-    if (!formData.datePret.trim()) {
-      Alert.alert("Erreur", "La date de prêt est requise");
-      return false;
-    }
-    if (!formData.dateRemise.trim()) {
-      Alert.alert("Erreur", "La date de remise est requise");
-      return false;
-    }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.emailEmprunteur)) {
       Alert.alert("Erreur", "L'email n'est pas valide");
       return false;
     }
-
-    const selectedMateriel = materiel.find((m) => m.id === formData.materielId);
-    if (selectedMateriel && selectedMateriel.nombre <= 0) {
-      Alert.alert("Erreur", "Ce composant n'est plus disponible");
+    if (!formData.itemId) {
+      Alert.alert("Erreur", "Veuillez sélectionner un appareil");
       return false;
     }
-
+    if (!formData.locationDate.trim()) {
+      Alert.alert("Erreur", "La date de prêt est requise");
+      return false;
+    }
+    if (!formData.returnDate.trim()) {
+      Alert.alert("Erreur", "La date de retour prévue est requise");
+      return false;
+    }
     return true;
   };
 
+  // ---- CRÉATION D'UNE LOCATION ----
+
   const handleSubmit = async () => {
     if (!validateForm()) return;
-
     setSubmitting(true);
 
     try {
-      console.log("Début de la soumission avec les données:", formData);
-
-      const preteurId = formData.preteurId;
-
-      let { data: emprunteur, error: emprunteurError } = await supabase
-        .from("utilisateur")
+      // 1. Cherche si l'emprunteur existe déjà
+      let { data: existingUser, error: searchError } = await supabase
+        .from("users")
         .select("id")
-        .eq("nom", formData.nomEmprunteur)
         .eq("email", formData.emailEmprunteur)
         .maybeSingle();
 
-      console.log("Recherche emprunteur:", { emprunteur, emprunteurError });
+      if (searchError) throw searchError;
 
-      if (emprunteurError) {
-        console.error(
-          "Erreur lors de la recherche de l'emprunteur:",
-          emprunteurError
-        );
-        throw emprunteurError;
-      }
-
-      if (!emprunteur) {
-        console.log("Création d'un nouvel emprunteur");
-        const { data: newEmprunteur, error: newEmprunteurError } =
-          await supabase
-            .from("utilisateur")
-            .insert([
-              {
-                nom: formData.nomEmprunteur,
-                email: formData.emailEmprunteur,
-                est_preteur: false,
-              },
-            ])
-            .select("id")
-            .single();
-
-        console.log("Nouvel emprunteur:", {
-          newEmprunteur,
-          newEmprunteurError,
-        });
-
-        if (newEmprunteurError) {
-          console.error(
-            "Erreur lors de la création de l'emprunteur:",
-            newEmprunteurError
-          );
-          throw newEmprunteurError;
-        }
-        emprunteur = newEmprunteur;
-      }
-
-      const materielId = formData.materielId;
-
-      const { data: currentMateriel, error: materielFetchError } =
-        await supabase
-          .from("materiel")
-          .select("nombre")
-          .eq("id", materielId)
+      // 2. Si l'emprunteur n'existe pas, on le crée
+      let borrowerId: number;
+      if (!existingUser) {
+        const { data: newUser, error: createError } = await supabase
+          .from("users")
+          .insert([{
+            nom: formData.nomEmprunteur,
+            email: formData.emailEmprunteur,
+            member_ILIA: false,
+          }])
+          .select("id")
           .single();
 
-      if (materielFetchError) {
-        console.error(
-          "Erreur lors de la récupération du composant :",
-          materielFetchError
-        );
-        throw materielFetchError;
+        if (createError) {
+          console.error("Erreur technique lors de la création de l'utilisateur:", createError);
+          throw createError;
+        }
+
+        if (!newUser) {
+          throw new Error("L'utilisateur a été créé mais aucun ID n'a été renvoyé.");
+        }
+        borrowerId = newUser.id;
+      } else {
+        borrowerId = existingUser.id;
       }
 
-      if (currentMateriel.nombre <= 0) {
-        Alert.alert("Erreur", "Ce composant n'est plus disponible");
-        return;
-      }
+      // 3. Passe le statut de l'item à "loué"
+      const { error: updateItemError } = await supabase
+        .from("items")
+        .update({ status: "loué" })
+        .eq("id", parseInt(formData.itemId));
 
-      const { error: materielUpdateError } = await supabase
-        .from("materiel")
-        .update({ nombre: currentMateriel.nombre - 1 })
-        .eq("id", materielId);
+      if (updateItemError) throw updateItemError;
 
-      if (materielUpdateError) {
-        console.error(
-          "Erreur lors de la mise à jour du composant :",
-          materielUpdateError
-        );
-        throw materielUpdateError;
-      }
-
-      console.log("Données pour la location:", {
-        id_preteur: preteurId,
-        id_emprunteur: emprunteur.id,
-        id_materiel: materielId,
-        date_location: formData.datePret,
-        date_remise: formData.dateRemise,
-      });
-
-      const { data: locationData, error: locationError } = await supabase
-        .from("location")
-        .insert([
-          {
-            id_preteur: preteurId,
-            id_emprunteur: emprunteur.id,
-            id_materiel: materielId,
-            date_location: formData.datePret,
-            date_remise: formData.dateRemise,
-          },
-        ])
-        .select();
-
-      console.log("Résultat création location:", {
-        locationData,
-        locationError,
-      });
+      // 4. Crée la location
+      const { error: locationError } = await supabase
+        .from("Location")
+        .insert([{
+          id_item: parseInt(formData.itemId),
+          id_lender: parseInt(formData.lenderId),
+          id_borrower: borrowerId,
+          location_date: formData.locationDate,
+          return_date: formData.returnDate,
+        }]);
 
       if (locationError) {
-        console.error(
-          "Erreur lors de la création de la location:",
-          locationError
-        );
-
+        // Annule le changement de statut si la location échoue
         await supabase
-          .from("materiel")
-          .update({ nombre: currentMateriel.nombre })
-          .eq("id", materielId);
+          .from("items")
+          .update({ status: "disponible" })
+          .eq("id", parseInt(formData.itemId));
         throw locationError;
       }
 
       Alert.alert("Succès", "Location créée avec succès");
 
+      // Reset formulaire
       setFormData({
-        preteurId: "",
-        nomEmprunteur: "",
-        emailEmprunteur: "",
-        materielId: "",
-        datePret: "",
-        dateRemise: "",
+        lenderId: "", nomEmprunteur: "", emailEmprunteur: "",
+        itemId: "", locationDate: "", returnDate: "",
       });
-
       setShowForm(false);
 
+      // Recharge les données
       await fetchLocations();
-      await fetchMateriels();
-    } catch (error) {
-      console.error("Erreur lors de la création de la location :", error);
-      Alert.alert(
-        "Erreur",
-        `Une erreur est survenue lors de la création de la location: ${
-          typeof error === "object" && error !== null && "message" in error
-            ? (error as { message: string }).message
-            : String(error)
-        }`
-      );
+      await fetchAvailableItems();
+
+    } catch (err) {
+      console.error("Erreur création location:", err);
+      Alert.alert("Erreur", "Une erreur est survenue lors de la création");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDeleteLocation = async (
-    locationId: string,
-    materielId: string
-  ) => {
-    Alert.alert(
-      "Confirmer la suppression",
-      "Êtes-vous sûr de vouloir supprimer cette location ? Le composant sera remis en stock.",
-      [
-        {
-          text: "Annuler",
-          style: "cancel",
-        },
-        {
-          text: "Supprimer",
-          style: "destructive",
-          onPress: () => deleteLocation(locationId, materielId),
-        },
-      ]
-    );
+  // ---- SUPPRESSION D'UNE LOCATION ----
+
+  const handleDeleteLocation = (locationId: number, itemId: number) => {
+    // Ouvre le modal et garde en mémoire les IDs
+    setItemToDelete({ locationId, itemId });
   };
 
-  const deleteLocation = async (locationId: string, materielId: string) => {
-    console.log("locationId:", locationId, "materielId:", materielId);
-
-    if (!locationId || !materielId) {
-      Alert.alert("Erreur", "ID de location ou composant manquant");
-      return;
+  const confirmDeletion = () => {
+    if (itemToDelete) {
+      deleteLocation(itemToDelete.locationId, itemToDelete.itemId);
+      setItemToDelete(null); // Ferme le modal
     }
+  };
+
+  const deleteLocation = async (locationId: number, itemId: number) => {
     setDeleting(locationId);
-
     try {
-      console.log("Début de la suppression de la location:", locationId);
-      console.log("Matériel ID:", materielId);
-
-      if (!locationId || !materielId) {
-        throw new Error("ID de location ou composant manquant");
-      }
-
-      const { data: locationExists, error: locationCheckError } = await supabase
-        .from("location")
-        .select("id")
-        .eq("id", locationId)
-        .single();
-
-      if (locationCheckError || !locationExists) {
-        throw new Error("Location non trouvée");
-      }
-
-      const { data: currentMateriel, error: materielFetchError } =
-        await supabase
-          .from("materiel")
-          .select("nombre")
-          .eq("id", materielId)
-          .single();
-
-      if (materielFetchError || !currentMateriel) {
-        console.error(
-          "Erreur lors de la récupération du composant:",
-          materielFetchError
-        );
-        throw new Error("Matériel non trouvé");
-      }
-
-      const { error: locationDeleteError } = await supabase
-        .from("location")
+      // 1. Supprime la location
+      const { error: deleteError } = await supabase
+        .from("Location")
         .delete()
         .eq("id", locationId);
 
-      if (locationDeleteError) {
-        console.error(
-          "Erreur lors de la suppression de la location:",
-          locationDeleteError
-        );
-        throw locationDeleteError;
-      }
+      if (deleteError) throw deleteError;
 
-      const { error: materielUpdateError } = await supabase
-        .from("materiel")
-        .update({ nombre: currentMateriel.nombre + 1 })
-        .eq("id", materielId);
+      // 2. Remet l'item en "disponible"
+      const { error: updateError } = await supabase
+        .from("items")
+        .update({ status: "disponible" })
+        .eq("id", itemId);
 
-      if (materielUpdateError) {
-        console.error(
-          "Erreur lors de la mise à jour du composant:",
-          materielUpdateError
-        );
-        throw materielUpdateError;
-      }
+      if (updateError) throw updateError;
 
-      console.log("Location supprimée avec succès");
-      Alert.alert(
-        "Succès",
-        "Location supprimée avec succès. Le composant a été remis en stock."
-      );
-
+      Alert.alert("Succès", "Location supprimée. L'appareil est de nouveau disponible.");
       await fetchLocations();
-      await fetchMateriels();
-    } catch (error) {
-      console.error("Erreur lors de la suppression de la location:", error);
-      Alert.alert(
-        "Erreur",
-        `Une erreur est survenue: ${
-          typeof error === "object" && error !== null && "message" in error
-            ? (error as { message: string }).message
-            : String(error)
-        }`
-      );
+      await fetchAvailableItems();
+
+    } catch (err) {
+      console.error("Erreur suppression:", err);
+      Alert.alert("Erreur", "Impossible de supprimer cette location");
     } finally {
       setDeleting(null);
     }
   };
 
-  const renderItem = ({ item }: { item: LocationWithDetails }) => (
+  // ---- HELPERS ----
+
+  const getSelectedItemLabel = (): string => {
+    if (!formData.itemId) return "Sélectionner un appareil";
+    const item = availableItems.find((i) => i.id.toString() === formData.itemId);
+    return item
+      ? `${item.model_materiel?.nom || "Inconnu"} — N°${item.serial_number}`
+      : "Appareil inconnu";
+  };
+
+  const getSelectedLenderLabel = (): string => {
+    if (!formData.lenderId) return "Sélectionner un prêteur";
+    const lender = lenders.find((l) => l.id.toString() === formData.lenderId);
+    return lender ? lender.nom : "Prêteur inconnu";
+  };
+
+  // ---- RENDU D'UNE CARTE LOCATION ----
+
+  const renderLocation = ({ item }: { item: LocationWithDetails }) => (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>
-        Matériel : {item.materiel?.nom || "Non défini"}
+        {item.item?.model_materiel?.nom || "Appareil inconnu"}
       </Text>
-      <Text style={styles.cardText}>
-        Emprunteur : {item.locataire?.nom || "Non défini"}
-      </Text>
-      <Text style={styles.cardText}>
-        Email : {item.locataire?.email || "Non défini"}
-      </Text>
-      <Text style={styles.cardText}>Date de prêt : {item.date_location}</Text>
-      <Text style={styles.cardText}>Date de remise : {item.date_remise}</Text>
-      <Text style={styles.cardText}>
-        Prêteur : {item.loueur?.nom || "Non défini"}
+      <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
+      <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
+      <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
+      <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
+      <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
+      <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
+      {item.effective_return_date && (
+        <Text style={styles.cardText}>Retour effectif : {item.effective_return_date}</Text>
+      )}
+      <Text style={[styles.cardText, styles.returnState]}>
+        État : {item.return_state || "En cours"}
       </Text>
 
       <TouchableOpacity
-        style={[
-          styles.deleteButton,
-          deleting === item.id && styles.deleteButtonDisabled,
-        ]}
-        onPress={() => handleDeleteLocation(item.id, item.id_materiel)}
+        style={[styles.deleteButton, deleting === item.id && styles.deleteButtonDisabled]}
+        onPress={() => handleDeleteLocation(item.id, item.id_item)}
         disabled={deleting === item.id}
+        activeOpacity={0.7}
       >
         <Text style={styles.deleteButtonText}>
-          {deleting === item.id ? "Suppression..." : "Supprimer"}
+          {deleting === item.id ? "Suppression en cours..." : "Supprimer la location"}
         </Text>
       </TouchableOpacity>
     </View>
   );
 
-  if (loading)
-    return <ActivityIndicator size="large" style={{ marginTop: 20 }} />;
+  // ---- RENDU PRINCIPAL ----
 
-  function handleMaterielSelect(id: string): void {
-    setFormData((prev) => ({
-      ...prev,
-      materielId: id,
-    }));
-    setShowMaterielPicker(false);
-  }
-
-  function handlePreteurSelect(id: string): void {
-    setFormData((prev) => ({
-      ...prev,
-      preteurId: id,
-    }));
-    setShowPreteurPicker(false);
-  }
-
-  function getSelectedMaterielName(): React.ReactNode {
-    if (!formData.materielId) {
-      return "Sélectionner un composant";
-    }
-    const selected = materiel.find((m) => m.id === formData.materielId);
-    return selected
-      ? `${selected.nom} (${selected.nombre} disponible${
-          selected.nombre > 1 ? "s" : ""
-        })`
-      : "Matériel inconnu";
-  }
-
-  function getSelectedPreteurName(): React.ReactNode {
-    if (!formData.preteurId) {
-      return "Sélectionner un prêteur";
-    }
-    const selected = preteurs.find((p) => p.id === formData.preteurId);
-    return selected ? selected.nom : "Prêteur inconnu";
-  }
+  if (loading) return <ActivityIndicator size="large" style={{ marginTop: 40 }} />;
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Locations</Text>
+      <Text style={styles.title}>Gestion des Locations</Text>
 
+      {/* Bouton toggle formulaire */}
       <TouchableOpacity
         style={styles.toggleButton}
         onPress={() => setShowForm(!showForm)}
       >
         <Text style={styles.toggleButtonText}>
-          {showForm ? "Masquer le formulaire" : "Ajouter une location"}
+          {showForm ? "Masquer le formulaire" : "Nouvelle location"}
         </Text>
       </TouchableOpacity>
 
+      {/* ---- FORMULAIRE ---- */}
       {showForm && (
         <View style={styles.formContainer}>
           <Text style={styles.formTitle}>Nouvelle location</Text>
 
+          {/* Picker Prêteur */}
           <TouchableOpacity
             style={styles.pickerButton}
-            onPress={() => setShowPreteurPicker(true)}
+            onPress={() => setShowLenderPicker(true)}
           >
-            <Text
-              style={[
-                styles.pickerButtonText,
-                formData.preteurId
-                  ? styles.pickerButtonTextSelected
-                  : styles.pickerButtonTextPlaceholder,
-              ]}
-            >
-              {getSelectedPreteurName()}
+            <Text style={formData.lenderId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+              {getSelectedLenderLabel()}
             </Text>
             <Text style={styles.pickerArrow}>▼</Text>
           </TouchableOpacity>
 
+          {/* Nom emprunteur */}
           <TextInput
             style={styles.input}
             placeholder="Nom de l'emprunteur"
             value={formData.nomEmprunteur}
-            onChangeText={(text) => handleInputChange("nomEmprunteur", text)}
+            onChangeText={(v) => setFormData((p) => ({ ...p, nomEmprunteur: v }))}
           />
 
+          {/* Email emprunteur */}
           <TextInput
             style={styles.input}
             placeholder="Email de l'emprunteur"
             value={formData.emailEmprunteur}
-            onChangeText={(text) => handleInputChange("emailEmprunteur", text)}
+            onChangeText={(v) => setFormData((p) => ({ ...p, emailEmprunteur: v }))}
             keyboardType="email-address"
             autoCapitalize="none"
           />
 
+          {/* Picker Item */}
           <TouchableOpacity
             style={styles.pickerButton}
-            onPress={() => setShowMaterielPicker(true)}
+            onPress={() => setShowItemPicker(true)}
           >
-            <Text
-              style={[
-                styles.pickerButtonText,
-                formData.materielId
-                  ? styles.pickerButtonTextSelected
-                  : styles.pickerButtonTextPlaceholder,
-              ]}
-            >
-              {getSelectedMaterielName()}
+            <Text style={formData.itemId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+              {getSelectedItemLabel()}
             </Text>
             <Text style={styles.pickerArrow}>▼</Text>
           </TouchableOpacity>
 
+          {/* Date de prêt */}
           <TextInput
             style={styles.input}
             placeholder="Date de prêt (YYYY-MM-DD)"
-            value={formData.datePret}
-            onChangeText={(text) => handleInputChange("datePret", text)}
+            value={formData.locationDate}
+            onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
           />
 
+          {/* Date de retour prévue */}
           <TextInput
             style={styles.input}
-            placeholder="Date de remise (YYYY-MM-DD)"
-            value={formData.dateRemise}
-            onChangeText={(text) => handleInputChange("dateRemise", text)}
+            placeholder="Date de retour prévue (YYYY-MM-DD)"
+            value={formData.returnDate}
+            onChangeText={(v) => setFormData((p) => ({ ...p, returnDate: v }))}
           />
 
           <TouchableOpacity
-            style={[
-              styles.submitButton,
-              submitting && styles.submitButtonDisabled,
-            ]}
+            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
             onPress={handleSubmit}
             disabled={submitting}
           >
             <Text style={styles.submitButtonText}>
-              {submitting ? "Envoi en cours..." : "Envoyer"}
+              {submitting ? "Création en cours..." : "Créer la location"}
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      <Modal
-        visible={showPreteurPicker}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowPreteurPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setShowPreteurPicker(false)}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalScrollView}>
-              {preteurs.map((preteur) => (
-                <TouchableOpacity
-                  key={preteur.id}
-                  style={[
-                    styles.materielOption,
-                    formData.preteurId === preteur.id &&
-                      styles.materielOptionSelected,
-                  ]}
-                  onPress={() => handlePreteurSelect(preteur.id)}
-                >
-                  <Text
-                    style={[
-                      styles.materielOptionText,
-                      formData.preteurId === preteur.id &&
-                        styles.materielOptionTextSelected,
-                    ]}
-                  >
-                    {preteur.nom}
-                    {preteur.email && (
-                      <Text style={styles.emailText}> ({preteur.email})</Text>
-                    )}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-
-              {preteurs.length === 0 && (
-                <Text style={styles.emptyText}>Aucun prêteur disponible</Text>
-              )}
-            </ScrollView>
+      {/* ---- MODALS (Inchangés mais gardés ici pour la structure) ---- */}
+      <Modal visible={showLenderPicker} transparent animationType="slide" onRequestClose={() => setShowLenderPicker(false)}>
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
+            <TouchableOpacity onPress={() => setShowLenderPicker(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
-        </View>
+          <ScrollView>
+            {lenders.length === 0 && <Text style={styles.emptyText}>Aucun membre ILIA disponible</Text>}
+            {lenders.map((lender) => (
+              <TouchableOpacity key={lender.id} style={[styles.modalOption, formData.lenderId === lender.id.toString() && styles.modalOptionSelected]} onPress={() => { setFormData((p) => ({ ...p, lenderId: lender.id.toString() })); setShowLenderPicker(false); }}>
+                <Text style={styles.modalOptionText}>{lender.nom}</Text>
+                <Text style={styles.modalOptionSubText}>{lender.email}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View></View>
       </Modal>
 
-      <Modal
-        visible={showMaterielPicker}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowMaterielPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un composant</Text>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setShowMaterielPicker(false)}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalScrollView}>
-              {materiel.map((materiel) => (
-                <TouchableOpacity
-                  key={materiel.id}
-                  style={[
-                    styles.materielOption,
-                    formData.materielId === materiel.id &&
-                      styles.materielOptionSelected,
-                    materiel.nombre <= 0 && styles.materielOptionDisabled,
-                  ]}
-                  onPress={() =>
-                    materiel.nombre > 0 && handleMaterielSelect(materiel.id)
-                  }
-                  disabled={materiel.nombre <= 0}
-                >
-                  <Text
-                    style={[
-                      styles.materielOptionText,
-                      formData.materielId === materiel.id &&
-                        styles.materielOptionTextSelected,
-                      materiel.nombre <= 0 && styles.materielOptionTextDisabled,
-                    ]}
-                  >
-                    {materiel.nom} ({materiel.nombre} disponible
-                    {materiel.nombre > 1 ? "s" : ""})
-                    {materiel.nombre <= 0 && " - Indisponible"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-
-              {materiel.length === 0 && (
-                <Text style={styles.emptyText}>Aucun composant disponible</Text>
-              )}
-            </ScrollView>
+      <Modal visible={showItemPicker} transparent animationType="slide" onRequestClose={() => setShowItemPicker(false)}>
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Sélectionner un appareil</Text>
+            <TouchableOpacity onPress={() => setShowItemPicker(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
-        </View>
+          <ScrollView>
+            {availableItems.length === 0 && <Text style={styles.emptyText}>Aucun appareil disponible</Text>}
+            {availableItems.map((item) => (
+              <TouchableOpacity key={item.id} style={[styles.modalOption, formData.itemId === item.id.toString() && styles.modalOptionSelected]} onPress={() => { setFormData((p) => ({ ...p, itemId: item.id.toString() })); setShowItemPicker(false); }}>
+                <Text style={styles.modalOptionText}>{item.model_materiel?.nom || "Modèle inconnu"}</Text>
+                <Text style={styles.modalOptionSubText}>N° {item.serial_number}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View></View>
       </Modal>
 
+
+      {/* ---- LISTE DES LOCATIONS OPTIMISÉE (PLUS DE FLATLIST) ---- */}
       <Text style={styles.subtitle}>Locations en cours</Text>
-      <FlatList
-        data={locations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        scrollEnabled={false}
-      />
+      
+      <View style={{ marginBottom: 20 }}>
+        {locations.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>Aucune location en cours</Text>
+          </View>
+        ) : (
+          locations.map((item) => (
+            <View key={item.id.toString()} style={styles.card}>
+              <Text style={styles.cardTitle}>
+                {item.item?.model_materiel?.nom || "Appareil inconnu"}
+              </Text>
+              <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
+              <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
+              <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
+              <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
+              <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
+              <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
+              {item.effective_return_date && (
+                <Text style={styles.cardText}>Retour effectif : {item.effective_return_date}</Text>
+              )}
+              <Text style={[styles.cardText, styles.returnState]}>
+                État : {item.return_state || "En cours"}
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.deleteButton, deleting === item.id && styles.deleteButtonDisabled]}
+                onPress={() => handleDeleteLocation(item.id, item.id_item)}
+              >
+                <Text style={styles.deleteButtonText}>
+                  {deleting === item.id ? "Suppression..." : "Supprimer"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
+      </View>
+
       <TouchableOpacity
-        style={styles.locationButton}
+        style={styles.navButton}
         onPress={() => router.push("/")}
-        activeOpacity={0.8}
       >
-        <Text style={styles.locationButtonText}>Gérer l'inventaire</Text>
+        <Text style={styles.navButtonText}>Voir l'inventaire</Text>
       </TouchableOpacity>
+
+      {/* ---- MODAL DE CONFIRMATION DE SUPPRESSION ---- */}
+      <Modal
+        visible={itemToDelete !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setItemToDelete(null)}
+      >
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <View style={styles.alertIconContainer}>
+              <Text style={styles.alertIcon}>⚠️</Text>
+            </View>
+            <Text style={styles.alertTitle}>Supprimer cette location ?</Text>
+            <Text style={styles.alertMessage}>
+              Cette action est irréversible. L'appareil redeviendra immédiatement disponible dans l'inventaire.
+            </Text>
+            
+            <View style={styles.alertButtonsContainer}>
+              <TouchableOpacity 
+                style={styles.alertCancelButton} 
+                onPress={() => setItemToDelete(null)}
+              >
+                <Text style={styles.alertCancelText}>Annuler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.alertConfirmButton} 
+                onPress={confirmDeletion}
+              >
+                <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
 
+// ---- STYLES ----
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: "#ffffff",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  subtitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 15,
-    marginTop: 20,
-  },
-  card: {
-    backgroundColor: "#e0f7fa",
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#e3e3e3",
-    boxShadow: "0px 1px 2px rgba(0,0,0,0.3)",
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 6,
-    color: "#1a1a1a",
-  },
-  cardText: {
-    fontSize: 14,
-    color: "#444",
-    marginBottom: 2,
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 5,
-  },
-  toggleButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 4,
-    paddingVertical: 12,
-    marginTop: 4,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  toggleButtonText: {
-    color: "#ffffff",
-    textAlign: "center",
-    fontWeight: "500",
-    fontSize: 16,
-  },
-  formContainer: {
-    backgroundColor: "#f5f5f5",
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 15,
-    textAlign: "center",
-  },
-  input: {
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    fontSize: 16,
-  },
-  submitButton: {
-    backgroundColor: "#2196F3",
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  submitButtonDisabled: {
-    backgroundColor: "#ccc",
-  },
-  submitButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  pickerButton: {
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    fontSize: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  pickerButtonText: {
-    fontSize: 16,
-    flex: 1,
-  },
-  pickerButtonTextSelected: {
-    color: "#000",
-  },
-  pickerButtonTextPlaceholder: {
-    color: "#999",
-  },
-  pickerArrow: {
-    color: "#666",
-    fontSize: 12,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderRadius: 10,
-    width: "90%",
-    maxHeight: "70%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  modalCloseButton: {
-    padding: 5,
-  },
-  modalCloseText: {
-    fontSize: 20,
-    color: "#666",
-  },
-  modalScrollView: {
-    maxHeight: 300,
-  },
-  materielOption: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  materielOptionSelected: {
-    backgroundColor: "#e3f2fd",
-  },
-  materielOptionDisabled: {
-    backgroundColor: "#f5f5f5",
-    opacity: 0.6,
-  },
-  materielOptionText: {
-    fontSize: 16,
-    color: "#333",
-  },
-  materielOptionTextSelected: {
-    color: "#2196F3",
-    fontWeight: "bold",
-  },
-  materielOptionTextDisabled: {
-    color: "#999",
-  },
-  emailText: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "normal",
-  },
-  emptyText: {
-    textAlign: "center",
-    padding: 20,
-    color: "#666",
-    fontStyle: "italic",
-  },
-  locationButton: {
-    backgroundColor: "#059669",
-    marginHorizontal: 16,
-    marginBottom: 24,
-    borderRadius: 4,
-    paddingVertical: 14,
-  },
-  locationButtonText: {
-    color: "#ffffff",
-    textAlign: "center",
-    fontWeight: "500",
-    fontSize: 16,
-  },
-  debugText: {
-    fontSize: 10,
-    color: "#666",
-    fontStyle: "italic",
-    marginTop: 5,
-  },
+  container: { flex: 1, padding: 20, backgroundColor: "#ffffff" },
+  title: { fontSize: 24, fontWeight: "bold", marginBottom: 20, color: "#1e293b" },
+  subtitle: { fontSize: 20, fontWeight: "bold", marginTop: 24, marginBottom: 12, color: "#1e293b" },
+
+  toggleButton: { backgroundColor: "#2563eb", borderRadius: 8, paddingVertical: 12, alignItems: "center", marginBottom: 20 },
+  toggleButtonText: { color: "#ffffff", fontWeight: "600", fontSize: 16 },
+
+  formContainer: { backgroundColor: "#f8fafc", padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: "#e2e8f0" },
+  formTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 16, textAlign: "center", color: "#1e293b" },
+  input: { backgroundColor: "white", padding: 14, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: "#cbd5e1", fontSize: 15 },
+
+  pickerButton: { backgroundColor: "white", padding: 14, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: "#cbd5e1", flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  pickerTextSelected: { fontSize: 15, color: "#1e293b", flex: 1 },
+  pickerTextPlaceholder: { fontSize: 15, color: "#94a3b8", flex: 1 },
+  pickerArrow: { color: "#64748b", fontSize: 12 },
+
+  submitButton: { backgroundColor: "#2563eb", padding: 14, borderRadius: 8, alignItems: "center", marginTop: 8 },
+  submitButtonDisabled: { backgroundColor: "#93c5fd" },
+  submitButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
+
+  card: { backgroundColor: "#f0f9ff", padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#bae6fd" },
+  cardTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 8, color: "#0c4a6e" },
+  cardText: { fontSize: 14, color: "#334155", marginBottom: 2 },
+  returnState: { marginTop: 6, fontWeight: "600", color: "#0369a1" },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+  modalContent: { backgroundColor: "white", borderRadius: 12, width: "90%", maxHeight: "70%", overflow: "hidden" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
+  modalTitle: { fontSize: 17, fontWeight: "bold", color: "#1e293b" },
+  modalClose: { fontSize: 20, color: "#64748b", padding: 4 },
+  modalOption: { padding: 16, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  modalOptionSelected: { backgroundColor: "#eff6ff" },
+  modalOptionText: { fontSize: 15, fontWeight: "600", color: "#1e293b" },
+  modalOptionSubText: { fontSize: 13, color: "#64748b", marginTop: 2 },
+
+  navButton: { backgroundColor: "#059669", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginVertical: 24 },
+  navButtonText: { color: "#ffffff", fontWeight: "600", fontSize: 16 },
+
+  emptyState: { alignItems: "center", paddingVertical: 30 },
+  emptyText: { color: "#64748b", fontSize: 15, textAlign: "center", padding: 20 },
+  // --- STYLES DU BOUTON DE LA CARTE ---
   deleteButton: {
-    backgroundColor: "#ef4444",
-    padding: 10,
-    borderRadius: 8,
+    backgroundColor: "#fee2e2", // Rouge très clair
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 15,
   },
   deleteButtonDisabled: {
-    backgroundColor: "#fca5a5",
+    backgroundColor: "#f3f4f6",
+    borderColor: "#e5e7eb",
+    opacity: 0.6,
   },
   deleteButtonText: {
-    color: "#fff",
+    color: "#dc2626", // Texte rouge foncé
+    fontSize: 15,
+    fontWeight: "600",
+  },
+
+  // --- STYLES DE LA NOUVELLE ALERTE MODAL ---
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)", // Fond noir semi-transparent
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  alertBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  alertIconContainer: {
+    backgroundColor: "#fee2e2",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  alertIcon: {
+    fontSize: 24,
+  },
+  alertTitle: {
+    fontSize: 20,
     fontWeight: "bold",
-    fontSize: 14,
+    color: "#1f2937",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  alertMessage: {
+    fontSize: 15,
+    color: "#4b5563",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  alertButtonsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 12, // Espace entre les deux boutons
+  },
+  alertCancelButton: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  alertCancelText: {
+    color: "#374151",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  alertConfirmButton: {
+    flex: 1,
+    backgroundColor: "#ef4444", // Rouge vif
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  alertConfirmText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });
 
