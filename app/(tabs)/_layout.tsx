@@ -3,6 +3,8 @@ import { Platform, TouchableOpacity, Text, View, Modal, StyleSheet } from "react
 import { useState } from "react";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { Colors } from "@/constants/Colors";
+// 👈 NOUVEAU : Import des icônes Expo
+import { MaterialIcons } from "@expo/vector-icons"; 
 
 export default function StackLayout() {
   const colorScheme = useColorScheme();
@@ -32,14 +34,31 @@ export default function StackLayout() {
           headerTintColor: themeColors.tint,
           animation: Platform.OS === "ios" ? "default" : "fade_from_bottom",
           
+          // 👈 MODIFICATION : Conteneur pour aligner le bouton Scan et le bouton Menu
           headerRight: () => (
-            <TouchableOpacity 
-              onPress={() => setMenuVisible(true)} 
-              style={styles.burgerButton}
-              activeOpacity={0.6}
-            >
-              <Text style={[styles.burgerIcon, { color: themeColors.text }]}>☰</Text>
-            </TouchableOpacity>
+            <View style={styles.headerRightContainer}>
+              {/* Bouton de Scan Direct */}
+              <TouchableOpacity 
+                onPress={() => router.push("/scanner")} 
+                style={styles.headerButton}
+                activeOpacity={0.6}
+              >
+                <MaterialIcons 
+                  name="qr-code-scanner" 
+                  size={26} 
+                  color={themeColors.text} 
+                />
+              </TouchableOpacity>
+
+              {/* Bouton Menu Burger */}
+              <TouchableOpacity 
+                onPress={() => setMenuVisible(true)} 
+                style={styles.headerButton}
+                activeOpacity={0.6}
+              >
+                <Text style={[styles.burgerIcon, { color: themeColors.text }]}>☰</Text>
+              </TouchableOpacity>
+            </View>
           ),
         }}
       >
@@ -47,6 +66,10 @@ export default function StackLayout() {
         <Stack.Screen
           name="location"
           options={{ title: "Gestion des locations" }}
+        />
+        <Stack.Screen
+          name="scanner"
+          options={{ title: "Scanner un QR Code" }}
         />
       </Stack>
 
@@ -64,7 +87,6 @@ export default function StackLayout() {
         >
           <View style={[styles.menuCard, { backgroundColor: themeColors.background }]}>
             
-            {/* Si ton index est dans (tabs), utilise "/(tabs)" ou "/" selon ton architecture */}
             <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/")}>
               <Text style={[styles.menuItemText, { color: themeColors.text }]}>Inventaire</Text>
             </TouchableOpacity>
@@ -84,15 +106,26 @@ export default function StackLayout() {
   );
 }
 
-// ---- STYLES STABLES ----
+// ---- STYLES AJUSTÉS ----
 const styles = StyleSheet.create({
-  burgerButton: {
-    paddingHorizontal: 12,
+  // Alignement horizontal des deux boutons dans le header
+  headerRightContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4, // Espace léger entre l'icône de scan et le menu burger
+    paddingRight: 4,
+  },
+  // Style de zone tactile harmonisé pour les boutons du header
+  headerButton: {
+    paddingHorizontal: 10,
     paddingVertical: 6,
+    justifyContent: "center",
+    alignItems: "center",
   },
   burgerIcon: {
     fontSize: 26,
     fontWeight: "bold",
+    lineHeight: 26, // Aligne proprement le symbole avec l'icône
   },
   modalOverlay: {
     flex: 1,
