@@ -18,13 +18,13 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(false);
   const [currentEmail, setCurrentEmail] = useState("");
   const [currentUsername, setCurrentUsername] = useState("");
+  const [userId, setUserId] = useState<string>(""); 
 
   const [newUsername, setNewUsername] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // 👈 État pour afficher/masquer le modal de déconnexion
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
   useEffect(() => {
@@ -37,25 +37,40 @@ export default function ProfileScreen() {
       setCurrentEmail(user.email ?? "");
       setCurrentUsername(user.user_metadata?.username ?? "");
       setNewUsername(user.user_metadata?.username ?? "");
+      setUserId(user.id); 
     }
   };
+
+  const [loadingUsername, setLoadingUsername] = useState(false);
+  const [loadingEmail, setLoadingEmail]       = useState(false);
+  const [loadingPassword, setLoadingPassword] = useState(false);
 
   const handleUpdateUsername = async () => {
     if (!newUsername.trim()) {
       Alert.alert("Erreur", "Le nom d'utilisateur ne peut pas être vide");
       return;
     }
-    setLoading(true);
-    const { error } = await supabase.auth.updateUser({
-      data: { username: newUsername.trim() },
-    });
-    setLoading(false);
+    setLoadingUsername(true);
+    try {
+      // 1. Met à jour les métadonnées auth
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { username: newUsername.trim() },
+      });
+      if (authError) throw authError;
 
-    if (error) {
-      Alert.alert("Erreur", error.message);
-    } else {
+      // 2. Synchronise public.users.nom ← FIX CRITIQUE
+      const { error: dbError } = await supabase
+        .from("users")
+        .update({ nom: newUsername.trim() })
+        .eq("id", userId);
+      if (dbError) throw dbError;
+
       setCurrentUsername(newUsername.trim());
-      Alert.alert("Succès", "Nom d'utilisateur mis à jour");
+      Alert.alert("✅ Succès", "Nom d'utilisateur mis à jour");
+    } catch (err: any) {
+      Alert.alert("Erreur", err?.message || "Impossible de mettre à jour le nom");
+    } finally {
+      setLoadingUsername(false);
     }
   };
 
@@ -69,18 +84,37 @@ export default function ProfileScreen() {
       Alert.alert("Erreur", "L'email n'est pas valide");
       return;
     }
-    setLoading(true);
-    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
-    setLoading(false);
+    setLoadingEmail(true);
+    try {
+      const { error: dbError } = await supabase
+        .from("users")
+        .update({ email: newEmail.trim() })
+        .eq("id", userId);
+      if (dbError) throw dbError;
 
-    if (error) {
-      Alert.alert("Erreur", error.message);
-    } else {
-      Alert.alert(
-        "Email mis à jour",
-        "Un email de confirmation a été envoyé à votre nouvelle adresse."
-      );
+      const { error: authError } = await supabase.auth.updateUser({
+        email: newEmail.trim(),
+      });
+      if (authError) {
+        await supabase
+          .from("users")
+          .update({ email: currentEmail })
+          .eq("id", userId);
+        throw authError;
+      }
+
+      setCurrentEmail(newEmail.trim());
       setNewEmail("");
+      Alert.alert(
+        " Confirmation requise",
+        "Un lien de confirmation a été envoyé à votre NOUVELLE adresse email.\n\n" +
+        "Si la sécurité renforcée est activée sur votre compte, vous recevrez " +
+        "aussi un email sur votre ANCIENNE adresse. Les deux doivent être confirmés."
+      );
+    } catch (err: any) {
+      Alert.alert("Erreur", err?.message || "Impossible de mettre à jour l'email");
+    } finally {
+      setLoadingEmail(false);
     }
   };
 
@@ -97,16 +131,17 @@ export default function ProfileScreen() {
       Alert.alert("Erreur", "Les mots de passe ne correspondent pas");
       return;
     }
-    setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setLoading(false);
-
-    if (error) {
-      Alert.alert("Erreur", error.message);
-    } else {
+    setLoadingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
       Alert.alert("Succès", "Mot de passe mis à jour");
       setNewPassword("");
       setConfirmPassword("");
+    } catch (err: any) {
+      Alert.alert("Erreur", err?.message || "Impossible de mettre à jour le mot de passe");
+    } finally {
+      setLoadingPassword(false);
     }
   };
 
@@ -149,15 +184,11 @@ export default function ProfileScreen() {
             autoCapitalize="none"
           />
           <TouchableOpacity
-            style={[styles.button, styles.buttonPrimary, loading && styles.buttonDisabled]}
+            style={[styles.button, styles.buttonPrimary, loadingUsername && styles.buttonDisabled]}
             onPress={handleUpdateUsername}
-            disabled={loading}
+            disabled={loadingUsername}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Mettre à jour le nom</Text>
-            )}
+            {loadingUsername ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Mettre à jour le nom</Text>}
           </TouchableOpacity>
         </View>
 
@@ -174,11 +205,11 @@ export default function ProfileScreen() {
             autoCapitalize="none"
           />
           <TouchableOpacity
-            style={[styles.button, styles.buttonPrimary, loading && styles.buttonDisabled]}
+            style={[styles.button, styles.buttonPrimary, loadingEmail && styles.buttonDisabled]}
             onPress={handleUpdateEmail}
-            disabled={loading}
+            disabled={loadingEmail}
           >
-            <Text style={styles.buttonText}>Mettre à jour l'email</Text>
+            {loadingEmail ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Mettre à jour l'email</Text>}
           </TouchableOpacity>
         </View>
 
@@ -202,11 +233,11 @@ export default function ProfileScreen() {
             secureTextEntry
           />
           <TouchableOpacity
-            style={[styles.button, styles.buttonPrimary, loading && styles.buttonDisabled]}
+            style={[styles.button, styles.buttonPrimary, loadingPassword && styles.buttonDisabled]}
             onPress={handleUpdatePassword}
-            disabled={loading}
+            disabled={loadingPassword}
           >
-            <Text style={styles.buttonText}>Mettre à jour le mot de passe</Text>
+            {loadingPassword ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Mettre à jour le mot de passe</Text>}
           </TouchableOpacity>
         </View>
 
