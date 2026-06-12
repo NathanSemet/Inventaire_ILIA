@@ -99,6 +99,14 @@ export default function StackLayout() {
               <Text style={[styles.menuItemText, { color: themeColors.text }]}>Profil</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/admin-inventory")}>
+              <Text style={[styles.menuItemText, { color: themeColors.text }]}>Inventaire Admin</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/admin-returns")}>
+              <Text style={[styles.menuItemText, { color: themeColors.text }]}>Retours Locations</Text>
+            </TouchableOpacity>
+
           </View>
         </TouchableOpacity>
       </Modal>

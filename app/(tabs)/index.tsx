@@ -1,3 +1,5 @@
+declare module "react-native-qrcode-svg";
+
 import React, { useState, useEffect } from "react";
 import {
   View,

@@ -258,54 +258,79 @@ const LocationScreen = () => {
     setSubmitting(true);
 
     try {
-      if (!connectedUser) {
-        Alert.alert("Erreur", "Impossible d'identifier l'utilisateur connecté.");
-        setSubmitting(false);
-        return;
+      // 1. Cherche si l'emprunteur existe déjà
+      let { data: existingUser, error: searchError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", formData.emailEmprunteur)
+        .maybeSingle();
+
+      if (searchError) throw searchError;
+
+      // 2. Si l'emprunteur n'existe pas, on le crée
+      let borrowerId: string; // 👈 CHANGEMENT : Changé de 'number' à 'string' pour les UUID
+      if (!existingUser) {
+        const { data: newUser, error: createError } = await supabase
+          .from("users")
+          .insert([{
+            nom: formData.nomEmprunteur,
+            email: formData.emailEmprunteur,
+            member_ILIA: false,
+          }])
+          .select("id")
+          .single();
+
+        if (createError) {
+          console.error("Erreur technique lors de la création de l'utilisateur:", createError);
+          throw createError;
+        }
+
+        if (!newUser) {
+          throw new Error("L'utilisateur a été créé mais aucun ID n'a été renvoyé.");
+        }
+        borrowerId = newUser.id;
+      } else {
+        borrowerId = existingUser.id;
       }
 
-      const borrowerId = connectedUser.id;
-
-      // 1. Passe le statut de l'item à "loué" (plus de parseInt)
+      // 3. Passe le statut de l'item à "loué"
       const { error: updateItemError } = await supabase
         .from("items")
         .update({ status: "loué" })
-        .eq("id", formData.itemId);
+        .eq("id", formData.itemId); // 👈 CHANGEMENT : Suppression de parseInt()
 
       if (updateItemError) throw updateItemError;
 
-      // 2. Crée la location en injectant directement l'ID de session
+      // 4. Crée la location
       const { error: locationError } = await supabase
         .from("Location")
         .insert([{
-          id_item: formData.itemId,
-          id_lender: formData.lenderId,
-          id_borrower: borrowerId,
+          id_item: formData.itemId,       // 👈 CHANGEMENT : Plus de parseInt()
+          id_lender: formData.lenderId,   // 👈 CHANGEMENT : Plus de parseInt()
+          id_borrower: borrowerId,        // Est déjà un UUID (string)
           location_date: formData.locationDate,
           return_date: formData.returnDate,
         }]);
 
       if (locationError) {
+        // Annule le changement de statut si la location échoue
         await supabase
           .from("items")
           .update({ status: "disponible" })
-          .eq("id", formData.itemId);
+          .eq("id", formData.itemId); // 👈 CHANGEMENT : Plus de parseInt()
         throw locationError;
       }
 
       Alert.alert("Succès", "Location créée avec succès");
 
-      // Reset formulaire partiel (on garde l'utilisateur prérempli)
+      // Reset formulaire
       setFormData({
-        lenderId: "",
-        nomEmprunteur: connectedUser.nom,
-        emailEmprunteur: connectedUser.email,
-        itemId: "",
-        locationDate: "",
-        returnDate: "",
+        lenderId: "", nomEmprunteur: "", emailEmprunteur: "",
+        itemId: "", locationDate: "", returnDate: "",
       });
       setShowForm(false);
 
+      // Recharge les données
       await fetchLocations();
       await fetchAvailableItems();
 
