@@ -199,14 +199,13 @@ export default function InventoryScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={styles.header}>
-        <Text style={styles.title}>Inventaire du Laboratoire</Text>
         <Text style={styles.subtitle}>{itemsFiltres.length} appareils trouvés</Text>
       </View>
 
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="🔍 Rechercher un appareil par nom..."
+          placeholder="Rechercher un appareil..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#94a3b8"

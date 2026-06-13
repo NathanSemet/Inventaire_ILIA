@@ -5,6 +5,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { Colors } from "@/constants/Colors";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { supabase } from "@/supabaseConfig";
+import { IconSymbol } from "@/components/ui/IconSymbol";
 
 export default function StackLayout() {
   const colorScheme = useColorScheme();
@@ -35,9 +36,22 @@ export default function StackLayout() {
           headerTintColor: themeColors.tint,
           animation: Platform.OS === "ios" ? "default" : "fade_from_bottom",
           headerRight: () => (
-            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.burgerButton} activeOpacity={0.6}>
-              <Text style={[styles.burgerIcon, { color: themeColors.text }]}>☰</Text>
-            </TouchableOpacity>
+            <View style={styles.headerRightContainer}>
+              <TouchableOpacity
+                onPress={() => router.push("/scanner")}
+                style={styles.scannerButton}
+                activeOpacity={0.6}
+              >
+                <IconSymbol
+                  name="qrcode.viewfinder"
+                  size={26}
+                  color={themeColors.text}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.burgerButton} activeOpacity={0.6}>
+                <Text style={[styles.burgerIcon, { color: themeColors.text }]}>☰</Text>
+              </TouchableOpacity>
+            </View>
           ),
         }}
       >
@@ -46,6 +60,7 @@ export default function StackLayout() {
         <Stack.Screen name="admin-inventory" options={{ title: "Gestion Inventaire" }} />
         <Stack.Screen name="admin-returns" options={{ title: "Retours Matériel" }} />
         <Stack.Screen name="profile" options={{ title: "Mon Profil" }} />
+        <Stack.Screen name="scanner" options={{ title: "Scanner QR Code" }} />
       </Stack>
 
       <Modal visible={menuVisible} transparent animationType="none" onRequestClose={() => setMenuVisible(false)}>
@@ -92,7 +107,7 @@ export default function StackLayout() {
 
             <View style={styles.divider} />
             <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-              <Text style={[styles.menuItemText, { color: "#ef4444" }]}>🚪 Déconnexion</Text>
+              <Text style={[styles.menuItemText, { color: "#ef4444" }]}>Déconnexion</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -128,4 +143,17 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 10, color: "#94a3b8", fontWeight: "700", textTransform: "uppercase", paddingHorizontal: 16, paddingTop: 6, paddingBottom: 2, letterSpacing: 0.5 },
   menuItem: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 },
   menuItemText: { fontSize: 15, fontWeight: "500" },
+  headerRightContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  scannerButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  scannerIcon: {
+    fontSize: 24,
+    fontWeight: "bold",
+  },
 });

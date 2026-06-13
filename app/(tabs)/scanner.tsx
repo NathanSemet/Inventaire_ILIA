@@ -28,14 +28,11 @@ export default function ScannerScreen() {
   };
 
   // Extrait le materielId depuis l'URL du QR code
-  const parseMaterielId = (rawValue: string): number | null => {
+  const parseMaterielId = (rawValue: string): string | null => {
     try {
-      // Format attendu : myapp://location?materielId=123
       const url = new URL(rawValue);
       const id = url.searchParams.get("materielId");
-      if (!id) return null;
-      const parsed = parseInt(id, 10);
-      return isNaN(parsed) ? null : parsed;
+      return id ? id.trim() : null;
     } catch {
       return null;
     }
