@@ -115,12 +115,48 @@
 <div class="modal-bg" id="modal-add">
   <div class="modal">
     <h3>Ajouter un item</h3>
-    <div class="form-group">
-      <label>Modèle</label>
-      <select id="add-model"></select>
+
+    <!-- Toggle modèle existant / nouveau modèle -->
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-btn-existing" onclick="switchAddMode('existing')">
+        Modèle existant
+      </button>
+      <button class="mode-btn" id="mode-btn-new" onclick="switchAddMode('new')">
+        Nouveau modèle
+      </button>
     </div>
+
+    <!-- Section : modèle existant -->
+    <div id="section-existing">
+      <div class="form-group">
+        <label>Modèle</label>
+        <select id="add-model-existing"></select>
+      </div>
+    </div>
+
+    <!-- Section : nouveau modèle -->
+    <div id="section-new" style="display:none">
+      <div class="form-divider">Informations du nouveau modèle</div>
+      <div class="form-group">
+        <label>Nom du modèle <span class="required">*</span></label>
+        <input type="text" id="add-model-nom" placeholder="Ex : Microscope optique Zeiss" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="add-model-description"
+                  placeholder="Description, caractéristiques techniques…"
+                  rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Catégorie <span class="required">*</span></label>
+        <select id="add-model-category"></select>
+      </div>
+      <div class="form-divider">Informations de l'item</div>
+    </div>
+
+    <!-- Champs communs aux deux modes -->
     <div class="form-group">
-      <label>Numéro de série</label>
+      <label>Numéro de série <span class="required">*</span></label>
       <input type="text" id="add-serial" placeholder="Ex : SN-2024-001" />
     </div>
     <div class="form-group">
@@ -131,8 +167,10 @@
         <option value="endommagé">Endommagé</option>
       </select>
     </div>
+
     <div class="flash flash-error" id="add-error"></div>
     <div class="flash flash-success" id="add-success"></div>
+
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-add')">Fermer</button>
       <button class="btn btn-primary" id="btn-save-add" onclick="saveNewItem()">Ajouter</button>

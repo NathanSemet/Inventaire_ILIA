@@ -15,10 +15,13 @@ const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── État partagé entre les modules ──
-// Ces variables sont lues et modifiées par data.js et modals.js
-let allItems  = [];   // Liste complète des items chargés depuis Supabase
-let allModels = [];   // Liste des modèles pour le select "Ajouter un item"
+let allItems      = [];   // Items chargés depuis Supabase
+let allModels     = [];   // Modèles de matériel
+let allCategories = [];   // Catégories (pour le formulaire nouveau modèle)
 
 // IDs en attente d'action dans les modals
 let pendingEditId   = null;
 let pendingDeleteId = null;
+
+// Mode actif du formulaire d'ajout : 'existing' ou 'new'
+let addMode = 'existing';

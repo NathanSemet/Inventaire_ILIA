@@ -132,7 +132,8 @@ header {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 10px 13px;
   border: 1.5px solid var(--border);
@@ -145,10 +146,67 @@ header {
   transition: border-color 0.15s, background 0.15s;
 }
 
+.form-group textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   border-color: var(--accent);
   background: #fff;
+}
+
+/* Indicateur champ obligatoire */
+.required {
+  color: var(--danger);
+  margin-left: 2px;
+}
+
+/* ── TOGGLE MODE EXISTANT / NOUVEAU ── */
+.mode-toggle {
+  display: flex;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+  margin-bottom: 20px;
+  gap: 3px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* ── SÉPARATEUR DE SECTION DANS LE FORMULAIRE ── */
+.form-divider {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  margin-bottom: 4px;
 }
 
 /* ── MESSAGES FLASH ── */
@@ -255,6 +313,11 @@ header {
   border: 1px solid var(--border);
 }
 
+/* QRCode.js génère un <canvas> ET un <img>.
+   Par défaut on masque l'img et on affiche le canvas. */
+.qr-wrap canvas { display: block; }
+.qr-wrap img    { display: none; }
+
 .qr-info {
   text-align: center;
   width: 100%;
@@ -325,7 +388,7 @@ header {
   border-radius: 14px;
   padding: 28px 28px 24px;
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
@@ -391,6 +454,10 @@ header {
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  /* En impression : masquer le canvas, afficher l'img générée par QRCode.js */
+  .qr-wrap canvas { display: none !important; }
+  .qr-wrap img    { display: block !important; width: 140px; height: 140px; }
 
   .qr-model      { font-size: 11px; }
   .qr-serial     { font-size: 9px; }

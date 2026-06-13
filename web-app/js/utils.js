@@ -27,9 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * Affiche l'état courant de la grille.
  * @param {'loading' | 'empty' | 'none'} state
- *   - 'loading' : spinner visible
- *   - 'empty'   : message "aucun item"
- *   - 'none'    : grille visible
  */
 function showState(state) {
   document.getElementById('loading-state').style.display =
@@ -48,7 +45,7 @@ function showState(state) {
 
 /**
  * Retourne la classe CSS et le label d'affichage pour un statut donné.
- * @param {string} status - Valeur brute du statut (ex: "disponible")
+ * @param {string} status
  * @returns {{ cls: string, label: string }}
  */
 function statusMeta(status) {
@@ -66,7 +63,6 @@ function statusMeta(status) {
 
 /**
  * Échappe les caractères spéciaux HTML pour éviter les injections XSS.
- * À utiliser avant toute insertion de texte dans du HTML via innerHTML.
  * @param {string} str
  * @returns {string}
  */
@@ -81,18 +77,21 @@ function esc(str) {
 // ── Impression ──
 
 /**
- * Cache les boutons de carte, lance l'impression, puis les restaure.
- * Nécessaire car @media print ne peut pas masquer des éléments
- * ajoutés dynamiquement avec display:flex inline.
+ * Cache les boutons de carte, déclenche l'impression, puis les restaure
+ * via l'événement afterprint — plus fiable que de restaurer après window.print()
+ * car certains navigateurs traitent window.print() de façon asynchrone.
  */
 function printAll() {
-  document.querySelectorAll('.card-actions').forEach(el => {
-    el.style.display = 'none';
+  const actions = document.querySelectorAll('.card-actions');
+
+  // Masque les boutons avant d'imprimer
+  actions.forEach(el => el.style.display = 'none');
+
+  // Restaure les boutons APRÈS que l'impression soit terminée ou annulée
+  window.addEventListener('afterprint', function handler() {
+    actions.forEach(el => el.style.display = 'flex');
+    window.removeEventListener('afterprint', handler);
   });
 
   window.print();
-
-  document.querySelectorAll('.card-actions').forEach(el => {
-    el.style.display = 'flex';
-  });
 }

@@ -9,8 +9,9 @@ async function loadData() {
   showState('loading');
 
   const [
-    { data: items,  error: itemsError  },
-    { data: models, error: modelsError },
+    { data: items,      error: itemsError      },
+    { data: models,     error: modelsError     },
+    { data: categories, error: categoriesError },
   ] = await Promise.all([
     db.from('items')
       .select('id, serial_number, status, id_model, model_materiel(nom)')
@@ -18,15 +19,19 @@ async function loadData() {
     db.from('model_materiel')
       .select('id, nom')
       .order('nom'),
+    db.from('Category')
+      .select('id, nom')
+      .order('nom'),
   ]);
 
-  if (itemsError || modelsError) {
-    console.error('Erreur chargement données:', itemsError || modelsError);
+  if (itemsError || modelsError || categoriesError) {
+    console.error('Erreur chargement données:',
+      itemsError || modelsError || categoriesError);
     showState('empty');
     return;
   }
 
-  // Normalise les jointures Supabase (peut renvoyer un tableau ou un objet)
+  // Normalise les jointures Supabase (tableau ou objet selon la version)
   allItems = (items || []).map(item => ({
     ...item,
     model_materiel: Array.isArray(item.model_materiel)
@@ -34,13 +39,15 @@ async function loadData() {
       : item.model_materiel,
   }));
 
-  allModels = models || [];
+  allModels     = models     || [];
+  allCategories = categories || [];
 
-  // Remplit le <select> du modal "Ajouter un item"
-  const modelSelect = document.getElementById('add-model');
-  modelSelect.innerHTML = allModels
-    .map(m => `<option value="${m.id}">${esc(m.nom)}</option>`)
-    .join('');
+  // Remplit les <select> du modal "Ajouter un item"
+  document.getElementById('add-model-existing').innerHTML =
+    allModels.map(m => `<option value="${m.id}">${esc(m.nom)}</option>`).join('');
+
+  document.getElementById('add-model-category').innerHTML =
+    allCategories.map(c => `<option value="${c.id}">${esc(c.nom)}</option>`).join('');
 
   renderCards(allItems);
 }
@@ -67,18 +74,17 @@ function renderCards(items) {
     const status = (item.status || '').toLowerCase();
     const { cls, label } = statusMeta(status);
 
-    // ── Construction de la carte ──
     const card = document.createElement('div');
-    card.className       = 'qr-card';
-    card.dataset.nom     = nom.toLowerCase();
-    card.dataset.serial  = serial.toLowerCase();
+    card.className      = 'qr-card';
+    card.dataset.nom    = nom.toLowerCase();
+    card.dataset.serial = serial.toLowerCase();
 
-    // Zone QR code (le QR sera injecté dedans après)
+    // Zone QR code (injectée après insertion dans le DOM)
     const qrWrap = document.createElement('div');
     qrWrap.className = 'qr-wrap';
     card.appendChild(qrWrap);
 
-    // Infos textuelles + boutons d'action
+    // Infos + boutons d'action
     card.insertAdjacentHTML('beforeend', `
       <div class="qr-info">
         <div class="qr-model">${esc(nom)}</div>
@@ -99,7 +105,7 @@ function renderCards(items) {
 
     grid.appendChild(card);
 
-    // Génère le QR code APRÈS insertion dans le DOM
+    // QR code généré APRÈS insertion dans le DOM
     new QRCode(qrWrap, {
       text: APP_SCHEME + item.id,
       width: 140,
@@ -109,7 +115,7 @@ function renderCards(items) {
   });
 }
 
-// ── Filtrage en temps réel par nom ou numéro de série ──
+// ── Filtrage en temps réel ──
 
 function filterCards() {
   const query = document.getElementById('search-input').value.toLowerCase();
