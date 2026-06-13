@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ILIA — QR Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo">ILIA <em>·</em> QR Manager</div>
+  <div class="header-right" id="header-actions" style="display:none">
+    <button class="btn btn-success" onclick="openAddModal()">+ Ajouter un item</button>
+    <button class="btn btn-outline" onclick="printAll()">🖨️ Imprimer tout</button>
+    <button class="btn btn-ghost" onclick="logout()">Déconnexion</button>
+  </div>
+</header>
+
+<!-- ── LOGIN ── -->
+<div id="login-screen">
+  <div class="login-card">
+    <h2>Accès réservé</h2>
+    <p>Connectez-vous avec votre compte membre ILIA.</p>
+    <div class="flash flash-error" id="login-error"></div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="votre@email.com" />
+    </div>
+    <div class="form-group">
+      <label>Mot de passe</label>
+      <input type="password" id="login-password"
+             onkeydown="if(event.key==='Enter') handleLogin()"
+             placeholder="••••••••" />
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:6px"
+            id="btn-login" onclick="handleLogin()">
+      Se connecter
+    </button>
+  </div>
+</div>
+
+<!-- ── APP ── -->
+<div id="app-screen">
+  <div class="page-title">
+    <h1>Générateur de QR Codes</h1>
+    <p>Gérez l'inventaire et imprimez les QR codes à coller sur le matériel.</p>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="search-input"
+           placeholder="Recherche d'un appareil..."
+           oninput="filterCards()" />
+    <div class="spacer"></div>
+    <span class="count" id="count-label">—</span>
+  </div>
+
+  <div class="state-box" id="loading-state" style="display:flex">
+    <div class="spinner"></div>
+    <span>Chargement des items…</span>
+  </div>
+  <div class="state-box" id="empty-state">
+    <span style="font-size:32px">📭</span>
+    <p style="font-weight:600">Aucun item trouvé</p>
+  </div>
+
+  <div id="qr-grid"></div>
+</div>
+
+<!-- ── MODAL : MODIFIER STATUT ── -->
+<div class="modal-bg" id="modal-edit">
+  <div class="modal">
+    <h3>Modifier le statut</h3>
+    <p id="edit-item-label" style="font-size:14px;color:var(--muted);margin-bottom:18px"></p>
+    <div class="form-group">
+      <label>Statut</label>
+      <select id="edit-status">
+        <option value="disponible">Disponible</option>
+        <option value="loué">Loué</option>
+        <option value="maintenance">En maintenance</option>
+        <option value="endommagé">Endommagé</option>
+      </select>
+    </div>
+    <div class="flash flash-error" id="edit-error"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-edit')">Annuler</button>
+      <button class="btn btn-primary" id="btn-save-edit" onclick="saveStatus()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL : CONFIRMER SUPPRESSION ── -->
+<div class="modal-bg" id="modal-delete">
+  <div class="modal">
+    <h3>⚠️ Confirmer la suppression</h3>
+    <p id="delete-item-label" style="font-size:14px;color:var(--muted);margin:12px 0 20px"></p>
+    <p style="font-size:14px">
+      Cette action est <strong>irréversible</strong>.
+      Le QR code collé sur le matériel ne fonctionnera plus.
+    </p>
+    <div class="flash flash-error" id="delete-error"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-delete')">Annuler</button>
+      <button class="btn btn-danger" id="btn-confirm-delete" onclick="confirmDelete()">
+        Supprimer définitivement
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL : AJOUTER UN ITEM ── -->
+<div class="modal-bg" id="modal-add">
+  <div class="modal">
+    <h3>Ajouter un item</h3>
+    <div class="form-group">
+      <label>Modèle</label>
+      <select id="add-model"></select>
+    </div>
+    <div class="form-group">
+      <label>Numéro de série</label>
+      <input type="text" id="add-serial" placeholder="Ex : SN-2024-001" />
+    </div>
+    <div class="form-group">
+      <label>Statut initial</label>
+      <select id="add-status">
+        <option value="disponible">Disponible</option>
+        <option value="maintenance">En maintenance</option>
+        <option value="endommagé">Endommagé</option>
+      </select>
+    </div>
+    <div class="flash flash-error" id="add-error"></div>
+    <div class="flash flash-success" id="add-success"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-add')">Fermer</button>
+      <button class="btn btn-primary" id="btn-save-add" onclick="saveNewItem()">Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCRIPTS (ordre important) ── -->
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/data.js"></script>
+<script src="js/modals.js"></script>
+
+</body>
+</html>
