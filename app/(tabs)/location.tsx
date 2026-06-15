@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/supabaseConfig";
+import { KeyboardAwareWrapper } from "@/components/KeyboardAwareWrapper";
 
 // ---- TYPES ----
 type Item = {
@@ -379,250 +380,252 @@ const LocationScreen = () => {
   if (loading) return <ActivityIndicator size="large" style={{ marginTop: 40 }} />;
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Gestion des Locations</Text>
+    <KeyboardAwareWrapper style={styles.container}>
+      <ScrollView style={styles.container}>
+        <Text style={styles.title}>Gestion des Locations</Text>
 
-      <TouchableOpacity
-        style={styles.toggleButton}
-        onPress={() => setShowForm(!showForm)}
-      >
-        <Text style={styles.toggleButtonText}>
-          {showForm ? "Masquer le formulaire" : "Nouvelle location"}
-        </Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.toggleButton}
+          onPress={() => setShowForm(!showForm)}
+        >
+          <Text style={styles.toggleButtonText}>
+            {showForm ? "Masquer le formulaire" : "Nouvelle location"}
+          </Text>
+        </TouchableOpacity>
 
-      {/* ---- FORMULAIRE ---- */}
-      {showForm && (
-        <View style={styles.formContainer}>
-          <Text style={styles.formTitle}>Nouvelle location</Text>
+        {/* ---- FORMULAIRE ---- */}
+        {showForm && (
+          <View style={styles.formContainer}>
+            <Text style={styles.formTitle}>Nouvelle location</Text>
 
-          <TouchableOpacity
-            style={styles.pickerButton}
-            onPress={() => setShowLenderPicker(true)}
-          >
-            <Text style={formData.lenderId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
-              {getSelectedLenderLabel()}
-            </Text>
-            <Text style={styles.pickerArrow}>▼</Text>
-          </TouchableOpacity>
-
-          <TextInput
-            style={[styles.input, styles.inputDisabled]}
-            placeholder="Nom de l'emprunteur"
-            value={formData.nomEmprunteur}
-            editable={false}
-          />
-
-          <TextInput
-            style={[styles.input, styles.inputDisabled]}
-            placeholder="Email de l'emprunteur"
-            value={formData.emailEmprunteur}
-            editable={false}
-            keyboardType="email-address"
-          />
-
-          <TouchableOpacity
-            style={styles.pickerButton}
-            onPress={() => setShowItemPicker(true)}
-          >
-            <Text style={formData.itemId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
-              {getSelectedItemLabel()}
-            </Text>
-            <Text style={styles.pickerArrow}>▼</Text>
-          </TouchableOpacity>
-
-          <TextInput
-            style={styles.input}
-            placeholder="Date de prêt (YYYY-MM-DD)"
-            value={formData.locationDate}
-            onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Date de retour prévue (YYYY-MM-DD)"
-            value={formData.returnDate}
-            onChangeText={(v) => setFormData((p) => ({ ...p, returnDate: v }))}
-          />
-
-          <TouchableOpacity
-            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
-            <Text style={styles.submitButtonText}>
-              {submitting ? "Création en cours..." : "Créer la location"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ---- MODAL PRÊTEUR ---- */}
-      <Modal
-        visible={showLenderPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowLenderPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
-              <TouchableOpacity onPress={() => setShowLenderPicker(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {lenders.length === 0 && (
-                <Text style={styles.emptyText}>Aucun membre ILIA disponible</Text>
-              )}
-              {lenders.map((lender) => (
-                <TouchableOpacity
-                  key={lender.id}
-                  style={[
-                    styles.modalOption,
-                    formData.lenderId === lender.id && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    setFormData((p) => ({ ...p, lenderId: lender.id }));
-                    setShowLenderPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{lender.nom}</Text>
-                  <Text style={styles.modalOptionSubText}>{lender.email}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---- MODAL APPAREIL ---- */}
-      <Modal
-        visible={showItemPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowItemPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un appareil</Text>
-              <TouchableOpacity onPress={() => setShowItemPicker(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {availableItems.length === 0 && (
-                <Text style={styles.emptyText}>Aucun appareil disponible</Text>
-              )}
-              {availableItems.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[
-                    styles.modalOption,
-                    formData.itemId === item.id && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    setFormData((p) => ({ ...p, itemId: item.id }));
-                    setShowItemPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>
-                    {item.model_materiel?.nom || "Modèle inconnu"}
-                  </Text>
-                  <Text style={styles.modalOptionSubText}>N° {item.serial_number}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---- LISTE DES LOCATIONS ---- */}
-      <Text style={styles.subtitle}>Locations en cours</Text>
-
-      <View style={{ marginBottom: 20 }}>
-        {locations.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Aucune location en cours</Text>
-          </View>
-        ) : (
-          locations.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <Text style={styles.cardTitle}>
-                {item.item?.model_materiel?.nom || "Appareil inconnu"}
+            <TouchableOpacity
+              style={styles.pickerButton}
+              onPress={() => setShowLenderPicker(true)}
+            >
+              <Text style={formData.lenderId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+                {getSelectedLenderLabel()}
               </Text>
-              <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
-              <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
-              <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
-              <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
-              <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
-              <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
-              {item.effective_return_date && (
-                <Text style={styles.cardText}>
-                  Retour effectif : {item.effective_return_date}
-                </Text>
-              )}
-              <Text style={[styles.cardText, styles.returnState]}>
-                État : {item.return_state || "En cours"}
-              </Text>
+              <Text style={styles.pickerArrow}>▼</Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  styles.deleteButton,
-                  deleting === item.id && styles.deleteButtonDisabled,
-                ]}
-                onPress={() => handleDeleteLocation(item.id, item.id_item)}
-                disabled={deleting === item.id}
-              >
-                <Text style={styles.deleteButtonText}>
-                  {deleting === item.id ? "Suppression..." : "Supprimer"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ))
+            <TextInput
+              style={[styles.input, styles.inputDisabled]}
+              placeholder="Nom de l'emprunteur"
+              value={formData.nomEmprunteur}
+              editable={false}
+            />
+
+            <TextInput
+              style={[styles.input, styles.inputDisabled]}
+              placeholder="Email de l'emprunteur"
+              value={formData.emailEmprunteur}
+              editable={false}
+              keyboardType="email-address"
+            />
+
+            <TouchableOpacity
+              style={styles.pickerButton}
+              onPress={() => setShowItemPicker(true)}
+            >
+              <Text style={formData.itemId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+                {getSelectedItemLabel()}
+              </Text>
+              <Text style={styles.pickerArrow}>▼</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Date de prêt (YYYY-MM-DD)"
+              value={formData.locationDate}
+              onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Date de retour prévue (YYYY-MM-DD)"
+              value={formData.returnDate}
+              onChangeText={(v) => setFormData((p) => ({ ...p, returnDate: v }))}
+            />
+
+            <TouchableOpacity
+              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              <Text style={styles.submitButtonText}>
+                {submitting ? "Création en cours..." : "Créer la location"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
-      </View>
 
-      <TouchableOpacity style={styles.navButton} onPress={() => router.push("/")}>
-        <Text style={styles.navButtonText}>Voir l'inventaire</Text>
-      </TouchableOpacity>
-
-      {/* ---- MODAL CONFIRMATION SUPPRESSION ---- */}
-      <Modal
-        visible={itemToDelete !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setItemToDelete(null)}
-      >
-        <View style={styles.alertOverlay}>
-          <View style={styles.alertBox}>
-            <View style={styles.alertIconContainer}>
-              <Text style={styles.alertIcon}>⚠️</Text>
-            </View>
-            <Text style={styles.alertTitle}>Supprimer cette location ?</Text>
-            <Text style={styles.alertMessage}>
-              Cette action est irréversible. L'appareil redeviendra immédiatement disponible.
-            </Text>
-            <View style={styles.alertButtonsContainer}>
-              <TouchableOpacity
-                style={styles.alertCancelButton}
-                onPress={() => setItemToDelete(null)}
-              >
-                <Text style={styles.alertCancelText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.alertConfirmButton}
-                onPress={confirmDeletion}
-              >
-                <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
-              </TouchableOpacity>
+        {/* ---- MODAL PRÊTEUR ---- */}
+        <Modal
+          visible={showLenderPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowLenderPicker(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
+                <TouchableOpacity onPress={() => setShowLenderPicker(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                {lenders.length === 0 && (
+                  <Text style={styles.emptyText}>Aucun membre ILIA disponible</Text>
+                )}
+                {lenders.map((lender) => (
+                  <TouchableOpacity
+                    key={lender.id}
+                    style={[
+                      styles.modalOption,
+                      formData.lenderId === lender.id && styles.modalOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setFormData((p) => ({ ...p, lenderId: lender.id }));
+                      setShowLenderPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>{lender.nom}</Text>
+                    <Text style={styles.modalOptionSubText}>{lender.email}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           </View>
+        </Modal>
+
+        {/* ---- MODAL APPAREIL ---- */}
+        <Modal
+          visible={showItemPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowItemPicker(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Sélectionner un appareil</Text>
+                <TouchableOpacity onPress={() => setShowItemPicker(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                {availableItems.length === 0 && (
+                  <Text style={styles.emptyText}>Aucun appareil disponible</Text>
+                )}
+                {availableItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.modalOption,
+                      formData.itemId === item.id && styles.modalOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setFormData((p) => ({ ...p, itemId: item.id }));
+                      setShowItemPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>
+                      {item.model_materiel?.nom || "Modèle inconnu"}
+                    </Text>
+                    <Text style={styles.modalOptionSubText}>N° {item.serial_number}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ---- LISTE DES LOCATIONS ---- */}
+        <Text style={styles.subtitle}>Locations en cours</Text>
+
+        <View style={{ marginBottom: 20 }}>
+          {locations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>Aucune location en cours</Text>
+            </View>
+          ) : (
+            locations.map((item) => (
+              <View key={item.id} style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {item.item?.model_materiel?.nom || "Appareil inconnu"}
+                </Text>
+                <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
+                <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
+                <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
+                <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
+                <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
+                <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
+                {item.effective_return_date && (
+                  <Text style={styles.cardText}>
+                    Retour effectif : {item.effective_return_date}
+                  </Text>
+                )}
+                <Text style={[styles.cardText, styles.returnState]}>
+                  État : {item.return_state || "En cours"}
+                </Text>
+
+                <TouchableOpacity
+                  style={[
+                    styles.deleteButton,
+                    deleting === item.id && styles.deleteButtonDisabled,
+                  ]}
+                  onPress={() => handleDeleteLocation(item.id, item.id_item)}
+                  disabled={deleting === item.id}
+                >
+                  <Text style={styles.deleteButtonText}>
+                    {deleting === item.id ? "Suppression..." : "Supprimer"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
         </View>
-      </Modal>
-    </ScrollView>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => router.push("/")}>
+          <Text style={styles.navButtonText}>Voir l'inventaire</Text>
+        </TouchableOpacity>
+
+        {/* ---- MODAL CONFIRMATION SUPPRESSION ---- */}
+        <Modal
+          visible={itemToDelete !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setItemToDelete(null)}
+        >
+          <View style={styles.alertOverlay}>
+            <View style={styles.alertBox}>
+              <View style={styles.alertIconContainer}>
+                <Text style={styles.alertIcon}>⚠️</Text>
+              </View>
+              <Text style={styles.alertTitle}>Supprimer cette location ?</Text>
+              <Text style={styles.alertMessage}>
+                Cette action est irréversible. L'appareil redeviendra immédiatement disponible.
+              </Text>
+              <View style={styles.alertButtonsContainer}>
+                <TouchableOpacity
+                  style={styles.alertCancelButton}
+                  onPress={() => setItemToDelete(null)}
+                >
+                  <Text style={styles.alertCancelText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.alertConfirmButton}
+                  onPress={confirmDeletion}
+                >
+                  <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    </KeyboardAwareWrapper>
   );
 };
 
