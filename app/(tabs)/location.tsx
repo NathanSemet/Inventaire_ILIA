@@ -6,6 +6,8 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/supabaseConfig";
 import { KeyboardAwareWrapper } from "@/components/KeyboardAwareWrapper";
+declare module "react-native-qrcode-svg";
+import QRCode from "react-native-qrcode-svg";
 
 // ---- TYPES ----
 type Item = {
@@ -64,6 +66,8 @@ const LocationScreen = () => {
   const [showItemPicker, setShowItemPicker] = useState(false);
   const [showLenderPicker, setShowLenderPicker] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ locationId: string; itemId: string } | null>(null);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedQRSerial, setSelectedQRSerial] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
     lenderId: "",
@@ -78,13 +82,12 @@ const LocationScreen = () => {
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true);
-      await fetchConnectedUser();
+      const user = await fetchConnectedUser(); // ← on récupère le profil
       await Promise.all([
-        fetchLocations(),
+        fetchLocations(user?.id),             // ← on le passe directement
         fetchAvailableItems(params.itemId as string | undefined),
         fetchLenders(),
       ]);
-      // ← EN DEHORS du Promise.all, la syntaxe est valide ici
       if (params.itemId) setShowForm(true);
       setLoading(false);
     };
@@ -94,10 +97,10 @@ const LocationScreen = () => {
 
   // ---- CHARGEMENT DES DONNÉES ----
 
-  const fetchConnectedUser = async () => {
+  const fetchConnectedUser = async (): Promise<User | null> => {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) return;
+      if (authError || !user) return null;
 
       const { data: profile, error: profileError } = await supabase
         .from("users")
@@ -105,7 +108,7 @@ const LocationScreen = () => {
         .eq("id", user.id)
         .single();
 
-      if (profileError || !profile) return;
+      if (profileError || !profile) return null;
 
       setConnectedUser(profile);
       setFormData((prev) => ({
@@ -113,14 +116,16 @@ const LocationScreen = () => {
         nomEmprunteur: profile.nom,
         emailEmprunteur: profile.email,
       }));
+      return profile;   // ← nouveau
     } catch (err) {
       console.error("Erreur fetchConnectedUser:", err);
+      return null;
     }
   };
 
-  const fetchLocations = async () => {
+  const fetchLocations = async (userId?: string) => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("Location")
         .select(`
           id,
@@ -137,8 +142,15 @@ const LocationScreen = () => {
           ),
           lender:users!Location_id_lender_fkey ( id, nom, email ),
           borrower:users!Location_id_borrower_fkey ( id, nom, email )
-        `);
+        `)
+        .is("effective_return_date", null); // ← locations non terminées seulement
 
+      if (userId) {
+        // ← prêteur OU emprunteur
+        query = query.or(`id_lender.eq.${userId},id_borrower.eq.${userId}`);
+      }
+
+      const { data, error } = await query;
       if (error) {
         console.error("Erreur chargement locations:", error);
         return;
@@ -308,7 +320,7 @@ const LocationScreen = () => {
       });
       setShowForm(false);
 
-      await fetchLocations();
+      await fetchLocations(connectedUser?.id);
       await fetchAvailableItems();
     } catch (err) {
       console.error("Erreur création location:", err);
@@ -349,7 +361,7 @@ const LocationScreen = () => {
       if (updateError) throw updateError;
 
       Alert.alert("Succès", "Location supprimée. L'appareil est de nouveau disponible.");
-      await fetchLocations();
+      await fetchLocations(connectedUser?.id);
       await fetchAvailableItems();
     } catch (err) {
       console.error("Erreur suppression:", err);
@@ -571,6 +583,16 @@ const LocationScreen = () => {
                 </Text>
 
                 <TouchableOpacity
+                  style={styles.qrButton}
+                  onPress={() => {
+                    setSelectedQRSerial(item.item?.serial_number || "");
+                    setShowQRModal(true);
+                  }}
+                >
+                  <Text style={styles.qrButtonText}>📷 QR Code de retour</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
                   style={[
                     styles.deleteButton,
                     deleting === item.id && styles.deleteButtonDisabled,
@@ -620,6 +642,36 @@ const LocationScreen = () => {
                 >
                   <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
                 </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ---- MODAL QR CODE RETOUR ---- */}
+        <Modal
+          visible={showQRModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowQRModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>QR Code de retour</Text>
+                <TouchableOpacity onPress={() => setShowQRModal(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.qrModalBody}>
+                <Text style={styles.qrModalSubtitle}>
+                  Présentez ce code à un membre ILIA pour valider le retour
+                </Text>
+                {selectedQRSerial ? (
+                  <View style={styles.qrContainer}>
+                    <QRCode value={selectedQRSerial} size={200} />
+                  </View>
+                ) : null}
+                <Text style={styles.qrSerial}>N° {selectedQRSerial}</Text>
               </View>
             </View>
           </View>
@@ -688,6 +740,30 @@ const styles = StyleSheet.create({
   alertCancelText: { color: "#374151", fontSize: 16, fontWeight: "600" },
   alertConfirmButton: { flex: 1, backgroundColor: "#ef4444", paddingVertical: 14, borderRadius: 12, alignItems: "center" },
   alertConfirmText: { color: "#ffffff", fontSize: 16, fontWeight: "bold" },
+  qrButton: {
+    borderWidth: 1,
+    borderColor: "#a5b4fc",
+    borderRadius: 8,
+    paddingVertical: 10,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  qrButtonText: { color: "#4338ca", fontWeight: "600", fontSize: 14 },
+  qrModalBody: { alignItems: "center", padding: 24 },
+  qrModalSubtitle: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  qrContainer: {
+    padding: 16,
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  qrSerial: { fontSize: 13, color: "#64748b", fontFamily: "monospace" },
 });
 
 export default LocationScreen;
