@@ -17,7 +17,16 @@ type Item = {
   model_materiel?: { nom: string } | null;
 };
 
-const STATUS_OPTIONS = ["disponible", "maintenance", "endommagé"];
+// Statuts attribuables manuellement par un admin ILIA.
+// "loué" et "en attente de retour" sont gérés automatiquement par le système de location.
+const MANUAL_STATUS_OPTIONS = [
+  { value: "disponible",   label: "✅ Disponible",      color: "#16a34a" },
+  { value: "maintenance",  label: "🔧 En maintenance",  color: "#d97706" },
+  { value: "endommagé",    label: "⚠️ Endommagé",       color: "#dc2626" },
+];
+
+// Statuts disponibles uniquement à la création d'un item
+const STATUS_OPTIONS_ADD = ["disponible", "maintenance", "endommagé"];
 
 export default function AdminInventoryScreen() {
   const { currentUser, loadingUser } = useCurrentUser();
@@ -29,7 +38,7 @@ export default function AdminInventoryScreen() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"list" | "add">("list");
 
-  // Formulaire
+  // ── Formulaire ajout ──
   const [createNewModel, setCreateNewModel] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [newModelNom, setNewModelNom] = useState("");
@@ -39,12 +48,19 @@ export default function AdminInventoryScreen() {
   const [itemStatus, setItemStatus] = useState("disponible");
   const [submitting, setSubmitting] = useState(false);
 
-  // Pickers & modals
+  // ── Pickers ajout ──
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
+
+  // ── Suppression ──
   const [itemToDelete, setItemToDelete] = useState<Item | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ── Édition de statut ──
+  const [itemToEdit, setItemToEdit] = useState<Item | null>(null);
+  const [editingStatus, setEditingStatus] = useState("");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     if (!loadingUser && !currentUser?.member_ILIA) {
@@ -81,6 +97,40 @@ export default function AdminInventoryScreen() {
     }
   };
 
+  // ── Vérifie si un item est verrouillé (en cours de location) ──
+  const isLocked = (status: string) =>
+    ["loué", "en attente de retour"].includes(status.toLowerCase());
+
+  // ── Ouvre le modal d'édition de statut ──
+  const openEditModal = (item: Item) => {
+    setItemToEdit(item);
+    setEditingStatus(item.status);
+  };
+
+  // ── Enregistre le nouveau statut ──
+  const handleUpdateStatus = async () => {
+    if (!itemToEdit) return;
+    if (editingStatus === itemToEdit.status) {
+      setItemToEdit(null);
+      return;
+    }
+    setUpdatingStatus(true);
+    try {
+      const { error } = await supabase
+        .from("items")
+        .update({ status: editingStatus })
+        .eq("id", itemToEdit.id);
+      if (error) throw error;
+      await fetchAll();
+      setItemToEdit(null);
+    } catch (err: any) {
+      Alert.alert("Erreur", err?.message || "Impossible de mettre à jour le statut");
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // ── Ajout d'un item ──
   const handleAddItem = async () => {
     if (!serialNumber.trim()) {
       Alert.alert("Erreur", "Le numéro de série est requis");
@@ -88,7 +138,6 @@ export default function AdminInventoryScreen() {
     }
     setSubmitting(true);
     let modelId: number;
-
     try {
       if (createNewModel) {
         if (!newModelNom.trim() || !selectedCategoryId) {
@@ -105,14 +154,12 @@ export default function AdminInventoryScreen() {
         if (!selectedModelId) { Alert.alert("Erreur", "Sélectionnez un modèle"); return; }
         modelId = parseInt(selectedModelId);
       }
-
       const { error } = await supabase.from("items").insert({
         serial_number: serialNumber.trim(),
         status: itemStatus,
         id_model: modelId,
       });
       if (error) throw error;
-
       Alert.alert("✅ Succès", "Appareil ajouté à l'inventaire !");
       setSerialNumber(""); setSelectedModelId(""); setNewModelNom("");
       setNewModelDesc(""); setSelectedCategoryId(""); setItemStatus("disponible");
@@ -125,27 +172,56 @@ export default function AdminInventoryScreen() {
     }
   };
 
+  // ── Suppression ──
   const confirmDelete = async () => {
     if (!itemToDelete) return;
-    setDeleting(true);
-    const { error } = await supabase.from("items").delete().eq("id", itemToDelete.id);
-    if (error) {
-      Alert.alert("Erreur", "Impossible de supprimer. L'appareil est peut-être en location active.");
-    } else {
-      Alert.alert("✅ Supprimé", "L'appareil a été retiré de l'inventaire.");
-      await fetchAll();
+
+    if (isLocked(itemToDelete.status)) {
+      setItemToDelete(null);
+      Alert.alert("Action impossible", "Cet appareil est actuellement en location et ne peut pas être supprimé.");
+      return;
     }
-    setItemToDelete(null);
-    setDeleting(false);
+
+    // Snapshot des données AVANT tout changement d'état
+    const id        = itemToDelete.id;
+    const nomModele = itemToDelete.model_materiel?.nom || "Appareil";
+    const serial    = itemToDelete.serial_number;
+
+    setDeleting(true);
+
+    try {
+      const { error } = await supabase
+        .from("items")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        // Affiche le vrai message d'erreur Supabase (utile pour diagnostiquer un problème RLS)
+        Alert.alert("Erreur", error.message || "Impossible de supprimer cet appareil.");
+        return;
+      }
+
+      // Ferme le modal de confirmation ET lance le rechargement
+      setItemToDelete(null);
+      await fetchAll();
+
+      // Montre le succès via Alert — fiable sans conflit d'animation
+      Alert.alert("✅ Supprimé", `"${nomModele} — N° ${serial}" a été retiré de l'inventaire.`);
+
+    } catch (err: any) {
+      Alert.alert("Erreur inattendue", err?.message || "Une erreur est survenue.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const getStatusStyle = (s: string) => {
     switch (s.toLowerCase()) {
-      case "disponible": return styles.badgeAvailable;
-      case "loué": return styles.badgeRented;
-      case "maintenance": return styles.badgeMaintenance;
-      case "en attente de retour": return styles.badgePending;
-      default: return styles.badgeDamaged;
+      case "disponible":          return styles.badgeAvailable;
+      case "loué":                return styles.badgeRented;
+      case "maintenance":         return styles.badgeMaintenance;
+      case "en attente de retour":return styles.badgePending;
+      default:                    return styles.badgeDamaged;
     }
   };
 
@@ -166,32 +242,56 @@ export default function AdminInventoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ---- LISTE ---- */}
+      {/* ── LISTE ── */}
       {activeTab === "list" && (
         items.length === 0
           ? <Text style={styles.emptyText}>Aucun appareil dans l'inventaire</Text>
-          : items.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardTop}>
-                <Text style={styles.cardTitle}>{item.model_materiel?.nom || "Modèle inconnu"}</Text>
-                <View style={[styles.badge, getStatusStyle(item.status)]}>
-                  <Text style={styles.badgeText}>{item.status}</Text>
+          : items.map((item) => {
+              const locked = isLocked(item.status);
+              return (
+                <View key={item.id} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <Text style={styles.cardTitle}>{item.model_materiel?.nom || "Modèle inconnu"}</Text>
+                    <View style={[styles.badge, getStatusStyle(item.status)]}>
+                      <Text style={styles.badgeText}>{item.status}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardSerial}>N° {item.serial_number}</Text>
+
+                  {/* Avertissement si objet verrouillé */}
+                  {locked && (
+                    <Text style={styles.lockedWarning}>
+                      🔒 En cours de location — modifications indisponibles
+                    </Text>
+                  )}
+
+                  {/* Boutons d'action */}
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={[styles.editBtn, locked && styles.btnDisabled]}
+                      onPress={() => !locked && openEditModal(item)}
+                      disabled={locked}
+                    >
+                      <Text style={[styles.editBtnText, locked && styles.btnTextDisabled]}>✏️ Statut</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.deleteBtn, locked && styles.btnDisabled]}
+                      onPress={() => !locked && setItemToDelete(item)}
+                      disabled={locked}
+                    >
+                      <Text style={[styles.deleteBtnText, locked && styles.btnTextDisabled]}>🗑 Supprimer</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-              <Text style={styles.cardSerial}>N° {item.serial_number}</Text>
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => setItemToDelete(item)}>
-                <Text style={styles.deleteBtnText}>🗑 Supprimer</Text>
-              </TouchableOpacity>
-            </View>
-          ))
+              );
+            })
       )}
 
-      {/* ---- FORMULAIRE AJOUT ---- */}
+      {/* ── FORMULAIRE AJOUT ── */}
       {activeTab === "add" && (
         <View style={styles.formContainer}>
           <Text style={styles.formTitle}>Nouvel appareil</Text>
 
-          {/* Toggle modèle */}
           <View style={styles.toggleRow}>
             <TouchableOpacity style={[styles.toggleOpt, !createNewModel && styles.toggleOptActive]} onPress={() => setCreateNewModel(false)}>
               <Text style={[styles.toggleText, !createNewModel && styles.toggleTextActive]}>Modèle existant</Text>
@@ -234,7 +334,11 @@ export default function AdminInventoryScreen() {
         </View>
       )}
 
-      {/* Modal Modèle */}
+      {/* ─────────────────────────────────────────
+          MODALS
+      ───────────────────────────────────────── */}
+
+      {/* Modal Modèle (ajout) */}
       <Modal visible={showModelPicker} transparent animationType="slide" onRequestClose={() => setShowModelPicker(false)}>
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <View style={styles.modalHeader}>
@@ -251,7 +355,7 @@ export default function AdminInventoryScreen() {
         </View></View>
       </Modal>
 
-      {/* Modal Catégorie */}
+      {/* Modal Catégorie (ajout) */}
       <Modal visible={showCategoryPicker} transparent animationType="slide" onRequestClose={() => setShowCategoryPicker(false)}>
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <View style={styles.modalHeader}>
@@ -267,14 +371,14 @@ export default function AdminInventoryScreen() {
         </View></View>
       </Modal>
 
-      {/* Modal Statut */}
+      {/* Modal Statut initial (ajout) */}
       <Modal visible={showStatusPicker} transparent animationType="slide" onRequestClose={() => setShowStatusPicker(false)}>
         <View style={styles.modalOverlay}><View style={[styles.modalContent, { maxHeight: 250 }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Statut initial</Text>
             <TouchableOpacity onPress={() => setShowStatusPicker(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
-          {STATUS_OPTIONS.map(s => (
+          {STATUS_OPTIONS_ADD.map(s => (
             <TouchableOpacity key={s} style={[styles.modalOption, itemStatus === s && styles.modalOptionSelected]}
               onPress={() => { setItemStatus(s); setShowStatusPicker(false); }}>
               <Text style={styles.modalOptionText}>{s}</Text>
@@ -283,24 +387,69 @@ export default function AdminInventoryScreen() {
         </View></View>
       </Modal>
 
-      {/* Modal Suppression */}
+      {/* ── Modal : Édition du statut ── */}
+      <Modal visible={itemToEdit !== null} transparent animationType="slide" onRequestClose={() => setItemToEdit(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: 440 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Modifier le statut</Text>
+              <TouchableOpacity onPress={() => setItemToEdit(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+            </View>
+            <View style={styles.editModalBody}>
+              <Text style={styles.editItemLabel}>
+                {itemToEdit?.model_materiel?.nom || "Appareil"} — N° {itemToEdit?.serial_number}
+              </Text>
+              <Text style={styles.editSectionLabel}>Sélectionner le nouveau statut</Text>
+
+              {MANUAL_STATUS_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.statusOption, editingStatus === opt.value && styles.statusOptionSelected]}
+                  onPress={() => setEditingStatus(opt.value)}
+                >
+                  <Text style={[styles.statusOptionText, editingStatus === opt.value && { color: opt.color, fontWeight: "700" }]}>
+                    {opt.label}
+                  </Text>
+                  {editingStatus === opt.value && (
+                    <Text style={{ color: opt.color, fontSize: 16 }}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.submitBtn, { marginTop: 16 }, updatingStatus && styles.submitBtnDisabled]}
+                onPress={handleUpdateStatus}
+                disabled={updatingStatus}
+              >
+                <Text style={styles.submitBtnText}>{updatingStatus ? "Enregistrement..." : "Enregistrer"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal : Confirmation de suppression ── */}
       <Modal visible={itemToDelete !== null} transparent animationType="fade" onRequestClose={() => setItemToDelete(null)}>
         <View style={styles.alertOverlay}><View style={styles.alertBox}>
           <Text style={styles.alertIcon}>⚠️</Text>
           <Text style={styles.alertTitle}>Supprimer cet appareil ?</Text>
           <Text style={styles.alertMessage}>
-            {`"${itemToDelete?.model_materiel?.nom || "Appareil"}" (N° ${itemToDelete?.serial_number}) sera définitivement supprimé de l'inventaire.`}
+            {`"${itemToDelete?.model_materiel?.nom || "Appareil"}" (N° ${itemToDelete?.serial_number}) sera définitivement supprimé de l'inventaire. Cette action est irréversible.`}
           </Text>
           <View style={styles.alertButtons}>
             <TouchableOpacity style={styles.alertCancel} onPress={() => setItemToDelete(null)}>
               <Text style={styles.alertCancelText}>Annuler</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.alertConfirm} onPress={confirmDelete} disabled={deleting}>
-              <Text style={styles.alertConfirmText}>{deleting ? "..." : "Supprimer"}</Text>
+              {deleting
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.alertConfirmText}>Supprimer</Text>
+              }
             </TouchableOpacity>
           </View>
         </View></View>
       </Modal>
+
     </ScrollView>
   );
 }
@@ -309,15 +458,24 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc", padding: 16 },
   title: { fontSize: 24, fontWeight: "bold", color: "#1e293b", marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#64748b", marginBottom: 20 },
+
+  // Onglets
   tabBar: { flexDirection: "row", backgroundColor: "#e2e8f0", borderRadius: 10, padding: 4, marginBottom: 20 },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
   tabActive: { backgroundColor: "#fff", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
   tabText: { fontSize: 14, color: "#64748b", fontWeight: "500" },
   tabTextActive: { color: "#1e293b", fontWeight: "700" },
+
+  // Carte
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: "#e2e8f0", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 },
   cardTitle: { fontSize: 16, fontWeight: "700", color: "#1e293b", flex: 1, marginRight: 8 },
-  cardSerial: { fontSize: 13, color: "#64748b", fontFamily: "monospace", marginBottom: 12 },
+  cardSerial: { fontSize: 13, color: "#64748b", fontFamily: "monospace", marginBottom: 10 },
+
+  // Avertissement verrou
+  lockedWarning: { fontSize: 12, color: "#92400e", backgroundColor: "#fef3c7", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, marginBottom: 10, textAlign: "center" },
+
+  // Badges
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   badgeText: { fontSize: 11, fontWeight: "700" },
   badgeAvailable: { backgroundColor: "#dcfce7" },
@@ -325,8 +483,18 @@ const styles = StyleSheet.create({
   badgeMaintenance: { backgroundColor: "#fef3c7" },
   badgePending: { backgroundColor: "#fde68a" },
   badgeDamaged: { backgroundColor: "#fee2e2" },
-  deleteBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fca5a5", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
-  deleteBtnText: { color: "#dc2626", fontWeight: "600" },
+  badgeUnavailable: { backgroundColor: "#f1f5f9" },
+
+  // Boutons d'action (rangée)
+  actionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  editBtn: { flex: 1, backgroundColor: "#eff6ff", borderWidth: 1, borderColor: "#93c5fd", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+  editBtnText: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
+  deleteBtn: { flex: 1, backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fca5a5", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+  deleteBtnText: { color: "#dc2626", fontWeight: "600", fontSize: 13 },
+  btnDisabled: { backgroundColor: "#f1f5f9", borderColor: "#e2e8f0" },
+  btnTextDisabled: { color: "#94a3b8" },
+
+  // Formulaire ajout
   formContainer: { backgroundColor: "#fff", borderRadius: 12, padding: 20, borderWidth: 1, borderColor: "#e2e8f0" },
   formTitle: { fontSize: 18, fontWeight: "bold", color: "#1e293b", marginBottom: 16, textAlign: "center" },
   toggleRow: { flexDirection: "row", backgroundColor: "#e2e8f0", borderRadius: 8, padding: 4, marginBottom: 16 },
@@ -342,6 +510,8 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { backgroundColor: "#93c5fd" },
   submitBtnText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   emptyText: { color: "#64748b", textAlign: "center", marginTop: 40, fontSize: 15 },
+
+  // Modals communs
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalContent: { backgroundColor: "#fff", borderRadius: 12, width: "90%", maxHeight: "70%" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
@@ -351,9 +521,19 @@ const styles = StyleSheet.create({
   modalOptionSelected: { backgroundColor: "#eff6ff" },
   modalOptionText: { fontSize: 15, fontWeight: "600", color: "#1e293b" },
   modalOptionSub: { fontSize: 13, color: "#64748b", marginTop: 2 },
+
+  // Modal édition statut
+  editModalBody: { padding: 16 },
+  editItemLabel: { fontSize: 14, fontWeight: "600", color: "#475569", marginBottom: 16, textAlign: "center" },
+  editSectionLabel: { fontSize: 12, color: "#94a3b8", fontWeight: "700", textTransform: "uppercase", marginBottom: 8 },
+  statusOption: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14, borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", marginBottom: 8, backgroundColor: "#f8fafc" },
+  statusOptionSelected: { backgroundColor: "#eff6ff", borderColor: "#93c5fd" },
+  statusOptionText: { fontSize: 15, color: "#1e293b" },
+
+  // Modal alert (confirmation / succès)
   alertOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
   alertBox: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 380, alignItems: "center" },
-  alertIcon: { fontSize: 32, marginBottom: 12 },
+  alertIcon: { fontSize: 36, marginBottom: 12 },
   alertTitle: { fontSize: 20, fontWeight: "bold", color: "#1f2937", marginBottom: 8, textAlign: "center" },
   alertMessage: { fontSize: 14, color: "#4b5563", textAlign: "center", marginBottom: 20, lineHeight: 20 },
   alertButtons: { flexDirection: "row", gap: 12, width: "100%" },
@@ -361,4 +541,6 @@ const styles = StyleSheet.create({
   alertCancelText: { color: "#374151", fontWeight: "600" },
   alertConfirm: { flex: 1, backgroundColor: "#ef4444", paddingVertical: 13, borderRadius: 10, alignItems: "center" },
   alertConfirmText: { color: "#fff", fontWeight: "bold" },
+  successBtn: { backgroundColor: "#2563eb", paddingVertical: 13, paddingHorizontal: 32, borderRadius: 10, alignItems: "center" },
+  successBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 });

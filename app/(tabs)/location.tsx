@@ -330,47 +330,6 @@ const LocationScreen = () => {
     }
   };
 
-  // ---- SUPPRESSION ----
-
-  const handleDeleteLocation = (locationId: string, itemId: string) => {
-    setItemToDelete({ locationId, itemId });
-  };
-
-  const confirmDeletion = () => {
-    if (itemToDelete) {
-      deleteLocation(itemToDelete.locationId, itemToDelete.itemId);
-      setItemToDelete(null);
-    }
-  };
-
-  const deleteLocation = async (locationId: string, itemId: string) => {
-    setDeleting(locationId);
-    try {
-      const { error: deleteError } = await supabase
-        .from("Location")
-        .delete()
-        .eq("id", locationId);
-
-      if (deleteError) throw deleteError;
-
-      const { error: updateError } = await supabase
-        .from("items")
-        .update({ status: "disponible" })
-        .eq("id", itemId);
-
-      if (updateError) throw updateError;
-
-      Alert.alert("Succès", "Location supprimée. L'appareil est de nouveau disponible.");
-      await fetchLocations(connectedUser?.id);
-      await fetchAvailableItems();
-    } catch (err) {
-      console.error("Erreur suppression:", err);
-      Alert.alert("Erreur", "Impossible de supprimer cette location");
-    } finally {
-      setDeleting(null);
-    }
-  };
-
   // ---- HELPERS ----
 
   const getSelectedItemLabel = (): string => {
@@ -591,19 +550,6 @@ const LocationScreen = () => {
                 >
                   <Text style={styles.qrButtonText}>📷 QR Code de retour</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.deleteButton,
-                    deleting === item.id && styles.deleteButtonDisabled,
-                  ]}
-                  onPress={() => handleDeleteLocation(item.id, item.id_item)}
-                  disabled={deleting === item.id}
-                >
-                  <Text style={styles.deleteButtonText}>
-                    {deleting === item.id ? "Suppression..." : "Supprimer"}
-                  </Text>
-                </TouchableOpacity>
               </View>
             ))
           )}
@@ -612,40 +558,6 @@ const LocationScreen = () => {
         <TouchableOpacity style={styles.navButton} onPress={() => router.push("/")}>
           <Text style={styles.navButtonText}>Voir l'inventaire</Text>
         </TouchableOpacity>
-
-        {/* ---- MODAL CONFIRMATION SUPPRESSION ---- */}
-        <Modal
-          visible={itemToDelete !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setItemToDelete(null)}
-        >
-          <View style={styles.alertOverlay}>
-            <View style={styles.alertBox}>
-              <View style={styles.alertIconContainer}>
-                <Text style={styles.alertIcon}>⚠️</Text>
-              </View>
-              <Text style={styles.alertTitle}>Supprimer cette location ?</Text>
-              <Text style={styles.alertMessage}>
-                Cette action est irréversible. L'appareil redeviendra immédiatement disponible.
-              </Text>
-              <View style={styles.alertButtonsContainer}>
-                <TouchableOpacity
-                  style={styles.alertCancelButton}
-                  onPress={() => setItemToDelete(null)}
-                >
-                  <Text style={styles.alertCancelText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.alertConfirmButton}
-                  onPress={confirmDeletion}
-                >
-                  <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
 
         {/* ---- MODAL QR CODE RETOUR ---- */}
         <Modal
