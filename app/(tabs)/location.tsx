@@ -5,6 +5,9 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/supabaseConfig";
+import { KeyboardAwareWrapper } from "@/components/KeyboardAwareWrapper";
+declare module "react-native-qrcode-svg";
+import QRCode from "react-native-qrcode-svg";
 
 // ---- TYPES ----
 type Item = {
@@ -63,6 +66,8 @@ const LocationScreen = () => {
   const [showItemPicker, setShowItemPicker] = useState(false);
   const [showLenderPicker, setShowLenderPicker] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ locationId: string; itemId: string } | null>(null);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedQRSerial, setSelectedQRSerial] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
     lenderId: "",
@@ -77,13 +82,12 @@ const LocationScreen = () => {
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true);
-      await fetchConnectedUser();
+      const user = await fetchConnectedUser(); // ← on récupère le profil
       await Promise.all([
-        fetchLocations(),
+        fetchLocations(user?.id),             // ← on le passe directement
         fetchAvailableItems(params.itemId as string | undefined),
         fetchLenders(),
       ]);
-      // ← EN DEHORS du Promise.all, la syntaxe est valide ici
       if (params.itemId) setShowForm(true);
       setLoading(false);
     };
@@ -93,10 +97,10 @@ const LocationScreen = () => {
 
   // ---- CHARGEMENT DES DONNÉES ----
 
-  const fetchConnectedUser = async () => {
+  const fetchConnectedUser = async (): Promise<User | null> => {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) return;
+      if (authError || !user) return null;
 
       const { data: profile, error: profileError } = await supabase
         .from("users")
@@ -104,7 +108,7 @@ const LocationScreen = () => {
         .eq("id", user.id)
         .single();
 
-      if (profileError || !profile) return;
+      if (profileError || !profile) return null;
 
       setConnectedUser(profile);
       setFormData((prev) => ({
@@ -112,14 +116,16 @@ const LocationScreen = () => {
         nomEmprunteur: profile.nom,
         emailEmprunteur: profile.email,
       }));
+      return profile;   // ← nouveau
     } catch (err) {
       console.error("Erreur fetchConnectedUser:", err);
+      return null;
     }
   };
 
-  const fetchLocations = async () => {
+  const fetchLocations = async (userId?: string) => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("Location")
         .select(`
           id,
@@ -136,8 +142,15 @@ const LocationScreen = () => {
           ),
           lender:users!Location_id_lender_fkey ( id, nom, email ),
           borrower:users!Location_id_borrower_fkey ( id, nom, email )
-        `);
+        `)
+        .is("effective_return_date", null); // ← locations non terminées seulement
 
+      if (userId) {
+        // ← prêteur OU emprunteur
+        query = query.or(`id_lender.eq.${userId},id_borrower.eq.${userId}`);
+      }
+
+      const { data, error } = await query;
       if (error) {
         console.error("Erreur chargement locations:", error);
         return;
@@ -307,54 +320,13 @@ const LocationScreen = () => {
       });
       setShowForm(false);
 
-      await fetchLocations();
+      await fetchLocations(connectedUser?.id);
       await fetchAvailableItems();
     } catch (err) {
       console.error("Erreur création location:", err);
       Alert.alert("Erreur", "Une erreur est survenue lors de la création");
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  // ---- SUPPRESSION ----
-
-  const handleDeleteLocation = (locationId: string, itemId: string) => {
-    setItemToDelete({ locationId, itemId });
-  };
-
-  const confirmDeletion = () => {
-    if (itemToDelete) {
-      deleteLocation(itemToDelete.locationId, itemToDelete.itemId);
-      setItemToDelete(null);
-    }
-  };
-
-  const deleteLocation = async (locationId: string, itemId: string) => {
-    setDeleting(locationId);
-    try {
-      const { error: deleteError } = await supabase
-        .from("Location")
-        .delete()
-        .eq("id", locationId);
-
-      if (deleteError) throw deleteError;
-
-      const { error: updateError } = await supabase
-        .from("items")
-        .update({ status: "disponible" })
-        .eq("id", itemId);
-
-      if (updateError) throw updateError;
-
-      Alert.alert("Succès", "Location supprimée. L'appareil est de nouveau disponible.");
-      await fetchLocations();
-      await fetchAvailableItems();
-    } catch (err) {
-      console.error("Erreur suppression:", err);
-      Alert.alert("Erreur", "Impossible de supprimer cette location");
-    } finally {
-      setDeleting(null);
     }
   };
 
@@ -379,250 +351,245 @@ const LocationScreen = () => {
   if (loading) return <ActivityIndicator size="large" style={{ marginTop: 40 }} />;
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Gestion des Locations</Text>
+    <KeyboardAwareWrapper style={styles.container}>
+      <ScrollView style={styles.container}>
+        <Text style={styles.title}>Gestion des Locations</Text>
 
-      <TouchableOpacity
-        style={styles.toggleButton}
-        onPress={() => setShowForm(!showForm)}
-      >
-        <Text style={styles.toggleButtonText}>
-          {showForm ? "Masquer le formulaire" : "Nouvelle location"}
-        </Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.toggleButton}
+          onPress={() => setShowForm(!showForm)}
+        >
+          <Text style={styles.toggleButtonText}>
+            {showForm ? "Masquer le formulaire" : "Nouvelle location"}
+          </Text>
+        </TouchableOpacity>
 
-      {/* ---- FORMULAIRE ---- */}
-      {showForm && (
-        <View style={styles.formContainer}>
-          <Text style={styles.formTitle}>Nouvelle location</Text>
+        {/* ---- FORMULAIRE ---- */}
+        {showForm && (
+          <View style={styles.formContainer}>
+            <Text style={styles.formTitle}>Nouvelle location</Text>
 
-          <TouchableOpacity
-            style={styles.pickerButton}
-            onPress={() => setShowLenderPicker(true)}
-          >
-            <Text style={formData.lenderId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
-              {getSelectedLenderLabel()}
-            </Text>
-            <Text style={styles.pickerArrow}>▼</Text>
-          </TouchableOpacity>
-
-          <TextInput
-            style={[styles.input, styles.inputDisabled]}
-            placeholder="Nom de l'emprunteur"
-            value={formData.nomEmprunteur}
-            editable={false}
-          />
-
-          <TextInput
-            style={[styles.input, styles.inputDisabled]}
-            placeholder="Email de l'emprunteur"
-            value={formData.emailEmprunteur}
-            editable={false}
-            keyboardType="email-address"
-          />
-
-          <TouchableOpacity
-            style={styles.pickerButton}
-            onPress={() => setShowItemPicker(true)}
-          >
-            <Text style={formData.itemId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
-              {getSelectedItemLabel()}
-            </Text>
-            <Text style={styles.pickerArrow}>▼</Text>
-          </TouchableOpacity>
-
-          <TextInput
-            style={styles.input}
-            placeholder="Date de prêt (YYYY-MM-DD)"
-            value={formData.locationDate}
-            onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Date de retour prévue (YYYY-MM-DD)"
-            value={formData.returnDate}
-            onChangeText={(v) => setFormData((p) => ({ ...p, returnDate: v }))}
-          />
-
-          <TouchableOpacity
-            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
-            <Text style={styles.submitButtonText}>
-              {submitting ? "Création en cours..." : "Créer la location"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ---- MODAL PRÊTEUR ---- */}
-      <Modal
-        visible={showLenderPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowLenderPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
-              <TouchableOpacity onPress={() => setShowLenderPicker(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {lenders.length === 0 && (
-                <Text style={styles.emptyText}>Aucun membre ILIA disponible</Text>
-              )}
-              {lenders.map((lender) => (
-                <TouchableOpacity
-                  key={lender.id}
-                  style={[
-                    styles.modalOption,
-                    formData.lenderId === lender.id && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    setFormData((p) => ({ ...p, lenderId: lender.id }));
-                    setShowLenderPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{lender.nom}</Text>
-                  <Text style={styles.modalOptionSubText}>{lender.email}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---- MODAL APPAREIL ---- */}
-      <Modal
-        visible={showItemPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowItemPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner un appareil</Text>
-              <TouchableOpacity onPress={() => setShowItemPicker(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {availableItems.length === 0 && (
-                <Text style={styles.emptyText}>Aucun appareil disponible</Text>
-              )}
-              {availableItems.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[
-                    styles.modalOption,
-                    formData.itemId === item.id && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    setFormData((p) => ({ ...p, itemId: item.id }));
-                    setShowItemPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>
-                    {item.model_materiel?.nom || "Modèle inconnu"}
-                  </Text>
-                  <Text style={styles.modalOptionSubText}>N° {item.serial_number}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---- LISTE DES LOCATIONS ---- */}
-      <Text style={styles.subtitle}>Locations en cours</Text>
-
-      <View style={{ marginBottom: 20 }}>
-        {locations.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Aucune location en cours</Text>
-          </View>
-        ) : (
-          locations.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <Text style={styles.cardTitle}>
-                {item.item?.model_materiel?.nom || "Appareil inconnu"}
+            <TouchableOpacity
+              style={styles.pickerButton}
+              onPress={() => setShowLenderPicker(true)}
+            >
+              <Text style={formData.lenderId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+                {getSelectedLenderLabel()}
               </Text>
-              <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
-              <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
-              <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
-              <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
-              <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
-              <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
-              {item.effective_return_date && (
-                <Text style={styles.cardText}>
-                  Retour effectif : {item.effective_return_date}
-                </Text>
-              )}
-              <Text style={[styles.cardText, styles.returnState]}>
-                État : {item.return_state || "En cours"}
-              </Text>
+              <Text style={styles.pickerArrow}>▼</Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  styles.deleteButton,
-                  deleting === item.id && styles.deleteButtonDisabled,
-                ]}
-                onPress={() => handleDeleteLocation(item.id, item.id_item)}
-                disabled={deleting === item.id}
-              >
-                <Text style={styles.deleteButtonText}>
-                  {deleting === item.id ? "Suppression..." : "Supprimer"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ))
+            <TextInput
+              style={[styles.input, styles.inputDisabled]}
+              placeholder="Nom de l'emprunteur"
+              value={formData.nomEmprunteur}
+              editable={false}
+            />
+
+            <TextInput
+              style={[styles.input, styles.inputDisabled]}
+              placeholder="Email de l'emprunteur"
+              value={formData.emailEmprunteur}
+              editable={false}
+              keyboardType="email-address"
+            />
+
+            <TouchableOpacity
+              style={styles.pickerButton}
+              onPress={() => setShowItemPicker(true)}
+            >
+              <Text style={formData.itemId ? styles.pickerTextSelected : styles.pickerTextPlaceholder}>
+                {getSelectedItemLabel()}
+              </Text>
+              <Text style={styles.pickerArrow}>▼</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Date de prêt (YYYY-MM-DD)"
+              value={formData.locationDate}
+              onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Date de retour prévue (YYYY-MM-DD)"
+              value={formData.returnDate}
+              onChangeText={(v) => setFormData((p) => ({ ...p, returnDate: v }))}
+            />
+
+            <TouchableOpacity
+              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              <Text style={styles.submitButtonText}>
+                {submitting ? "Création en cours..." : "Créer la location"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
-      </View>
 
-      <TouchableOpacity style={styles.navButton} onPress={() => router.push("/")}>
-        <Text style={styles.navButtonText}>Voir l'inventaire</Text>
-      </TouchableOpacity>
-
-      {/* ---- MODAL CONFIRMATION SUPPRESSION ---- */}
-      <Modal
-        visible={itemToDelete !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setItemToDelete(null)}
-      >
-        <View style={styles.alertOverlay}>
-          <View style={styles.alertBox}>
-            <View style={styles.alertIconContainer}>
-              <Text style={styles.alertIcon}>⚠️</Text>
-            </View>
-            <Text style={styles.alertTitle}>Supprimer cette location ?</Text>
-            <Text style={styles.alertMessage}>
-              Cette action est irréversible. L'appareil redeviendra immédiatement disponible.
-            </Text>
-            <View style={styles.alertButtonsContainer}>
-              <TouchableOpacity
-                style={styles.alertCancelButton}
-                onPress={() => setItemToDelete(null)}
-              >
-                <Text style={styles.alertCancelText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.alertConfirmButton}
-                onPress={confirmDeletion}
-              >
-                <Text style={styles.alertConfirmText}>Oui, supprimer</Text>
-              </TouchableOpacity>
+        {/* ---- MODAL PRÊTEUR ---- */}
+        <Modal
+          visible={showLenderPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowLenderPicker(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Sélectionner un prêteur</Text>
+                <TouchableOpacity onPress={() => setShowLenderPicker(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                {lenders.length === 0 && (
+                  <Text style={styles.emptyText}>Aucun membre ILIA disponible</Text>
+                )}
+                {lenders.map((lender) => (
+                  <TouchableOpacity
+                    key={lender.id}
+                    style={[
+                      styles.modalOption,
+                      formData.lenderId === lender.id && styles.modalOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setFormData((p) => ({ ...p, lenderId: lender.id }));
+                      setShowLenderPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>{lender.nom}</Text>
+                    <Text style={styles.modalOptionSubText}>{lender.email}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           </View>
+        </Modal>
+
+        {/* ---- MODAL APPAREIL ---- */}
+        <Modal
+          visible={showItemPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowItemPicker(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Sélectionner un appareil</Text>
+                <TouchableOpacity onPress={() => setShowItemPicker(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                {availableItems.length === 0 && (
+                  <Text style={styles.emptyText}>Aucun appareil disponible</Text>
+                )}
+                {availableItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.modalOption,
+                      formData.itemId === item.id && styles.modalOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setFormData((p) => ({ ...p, itemId: item.id }));
+                      setShowItemPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>
+                      {item.model_materiel?.nom || "Modèle inconnu"}
+                    </Text>
+                    <Text style={styles.modalOptionSubText}>N° {item.serial_number}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ---- LISTE DES LOCATIONS ---- */}
+        <Text style={styles.subtitle}>Locations en cours</Text>
+
+        <View style={{ marginBottom: 20 }}>
+          {locations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>Aucune location en cours</Text>
+            </View>
+          ) : (
+            locations.map((item) => (
+              <View key={item.id} style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {item.item?.model_materiel?.nom || "Appareil inconnu"}
+                </Text>
+                <Text style={styles.cardText}>N° série : {item.item?.serial_number || "—"}</Text>
+                <Text style={styles.cardText}>Emprunteur : {item.borrower?.nom || "—"}</Text>
+                <Text style={styles.cardText}>Email : {item.borrower?.email || "—"}</Text>
+                <Text style={styles.cardText}>Prêteur : {item.lender?.nom || "—"}</Text>
+                <Text style={styles.cardText}>Date de prêt : {item.location_date}</Text>
+                <Text style={styles.cardText}>Retour prévu : {item.return_date}</Text>
+                {item.effective_return_date && (
+                  <Text style={styles.cardText}>
+                    Retour effectif : {item.effective_return_date}
+                  </Text>
+                )}
+                <Text style={[styles.cardText, styles.returnState]}>
+                  État : {item.return_state || "En cours"}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.qrButton}
+                  onPress={() => {
+                    setSelectedQRSerial(item.item?.serial_number || "");
+                    setShowQRModal(true);
+                  }}
+                >
+                  <Text style={styles.qrButtonText}>📷 QR Code de retour</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
         </View>
-      </Modal>
-    </ScrollView>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => router.push("/")}>
+          <Text style={styles.navButtonText}>Voir l'inventaire</Text>
+        </TouchableOpacity>
+
+        {/* ---- MODAL QR CODE RETOUR ---- */}
+        <Modal
+          visible={showQRModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowQRModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>QR Code de retour</Text>
+                <TouchableOpacity onPress={() => setShowQRModal(false)}>
+                  <Text style={styles.modalClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.qrModalBody}>
+                <Text style={styles.qrModalSubtitle}>
+                  Présentez ce code à un membre ILIA pour valider le retour
+                </Text>
+                {selectedQRSerial ? (
+                  <View style={styles.qrContainer}>
+                    <QRCode value={selectedQRSerial} size={200} />
+                  </View>
+                ) : null}
+                <Text style={styles.qrSerial}>N° {selectedQRSerial}</Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    </KeyboardAwareWrapper>
   );
 };
 
@@ -685,6 +652,30 @@ const styles = StyleSheet.create({
   alertCancelText: { color: "#374151", fontSize: 16, fontWeight: "600" },
   alertConfirmButton: { flex: 1, backgroundColor: "#ef4444", paddingVertical: 14, borderRadius: 12, alignItems: "center" },
   alertConfirmText: { color: "#ffffff", fontSize: 16, fontWeight: "bold" },
+  qrButton: {
+    borderWidth: 1,
+    borderColor: "#a5b4fc",
+    borderRadius: 8,
+    paddingVertical: 10,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  qrButtonText: { color: "#4338ca", fontWeight: "600", fontSize: 14 },
+  qrModalBody: { alignItems: "center", padding: 24 },
+  qrModalSubtitle: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  qrContainer: {
+    padding: 16,
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  qrSerial: { fontSize: 13, color: "#64748b", fontFamily: "monospace" },
 });
 
 export default LocationScreen;

@@ -61,7 +61,6 @@ export default function AdminReturnsScreen() {
     }, [loadingUser, currentUser])
   );
 
-  // ---- Détection automatique des retards ----
   const checkAndUpdateOverdue = async () => {
     setLoading(true);
     try {
@@ -121,7 +120,6 @@ export default function AdminReturnsScreen() {
     }
   };
 
-  // ---- Recherche par numéro de série ----
   const searchBySerial = async (rawSerial: string) => {
     if (!rawSerial.trim()) {
       Alert.alert("Erreur", "Entrez un numéro de série");
@@ -189,7 +187,6 @@ export default function AdminReturnsScreen() {
     }
   };
 
-  // ---- Parser QR flexible ----
   const handleQRScanned = ({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
@@ -243,7 +240,7 @@ export default function AdminReturnsScreen() {
       if (itemError) throw itemError;
 
       Alert.alert(
-        "✅ Retour validé",
+        "Retour validé",
         newStatus === "disponible"
           ? `"${selectedLoan.modelNom}" est de nouveau disponible dans l'inventaire.`
           : `"${selectedLoan.modelNom}" est marqué comme endommagé.`

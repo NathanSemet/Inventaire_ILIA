@@ -172,16 +172,6 @@ export default function InventoryScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={styles.qrButton}
-          onPress={() => {
-            setSelectedMateriel(item);
-            setShowQRModal(true);
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.qrButtonText}>📷 Voir QR Code</Text>
-        </TouchableOpacity>
       </View>
     );
   };
