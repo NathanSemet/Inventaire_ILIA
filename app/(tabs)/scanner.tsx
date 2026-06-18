@@ -97,10 +97,12 @@ export default function ScannerScreen() {
           message += "\n\nRaison : en cours de maintenance.";
         } else if (status === "endommagé" || status === "endommage") {
           message += "\n\nRaison : matériel endommagé.";
+        } else if (status === "réservé") {
+        message += "\n\nRaison : une demande de location est en attente de validation ILIA.";
         } else {
           message += `\n\nStatut actuel : ${item.status}.`;
-        }
-
+        } 
+        
         setErrorMessage(message);
         setScanState("error");
       }
