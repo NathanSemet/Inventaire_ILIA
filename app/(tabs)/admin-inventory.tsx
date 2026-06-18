@@ -99,7 +99,7 @@ export default function AdminInventoryScreen() {
 
   // ── Vérifie si un item est verrouillé (en cours de location) ──
   const isLocked = (status: string) =>
-    ["loué", "en attente de retour"].includes(status.toLowerCase());
+    ["loué", "en attente de retour", "réservé"].includes(status.toLowerCase());
 
   // ── Ouvre le modal d'édition de statut ──
   const openEditModal = (item: Item) => {
@@ -221,6 +221,7 @@ export default function AdminInventoryScreen() {
       case "loué":                return styles.badgeRented;
       case "maintenance":         return styles.badgeMaintenance;
       case "en attente de retour":return styles.badgePending;
+      case "réservé":             return styles.badgeReserved;
       default:                    return styles.badgeDamaged;
     }
   };
@@ -261,7 +262,9 @@ export default function AdminInventoryScreen() {
                   {/* Avertissement si objet verrouillé */}
                   {locked && (
                     <Text style={styles.lockedWarning}>
-                      🔒 En cours de location — modifications indisponibles
+                      🔒 {item.status === "réservé"
+                        ? "Demande en attente de validation ILIA"
+                        : "En cours de location"} — modifications indisponibles
                     </Text>
                   )}
 
@@ -484,6 +487,7 @@ const styles = StyleSheet.create({
   badgePending: { backgroundColor: "#fde68a" },
   badgeDamaged: { backgroundColor: "#fee2e2" },
   badgeUnavailable: { backgroundColor: "#f1f5f9" },
+  badgeReserved: { backgroundColor: "#e0e7ff" },  
 
   // Boutons d'action (rangée)
   actionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
@@ -543,4 +547,5 @@ const styles = StyleSheet.create({
   alertConfirmText: { color: "#fff", fontWeight: "bold" },
   successBtn: { backgroundColor: "#2563eb", paddingVertical: 13, paddingHorizontal: 32, borderRadius: 10, alignItems: "center" },
   successBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
 });

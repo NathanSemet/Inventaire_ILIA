@@ -61,6 +61,7 @@ export default function StackLayout() {
         <Stack.Screen name="admin-returns" options={{ title: "Retours Matériel" }} />
         <Stack.Screen name="profile" options={{ title: "Mon Profil" }} />
         <Stack.Screen name="scanner" options={{ title: "Scanner QR Code" }} />
+        <Stack.Screen name="admin-requests" options={{ title: "Demandes de location" }} />
       </Stack>
 
       <Modal visible={menuVisible} transparent animationType="none" onRequestClose={() => setMenuVisible(false)}>
@@ -101,6 +102,9 @@ export default function StackLayout() {
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/admin-returns")}>
                   <Text style={[styles.menuItemText, { color: themeColors.text }]}>Retours matériel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo("/admin-requests")}>
+                  <Text style={[styles.menuItemText, { color: themeColors.text }]}>Demandes de location</Text>
                 </TouchableOpacity>
               </>
             )}

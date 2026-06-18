@@ -33,12 +33,25 @@ type LocationWithDetails = {
   return_date: string;
   effective_return_date?: string;
   return_state?: string;
+  statut?: string;
   item?: {
     serial_number: string;
     model_materiel?: { nom: string } | null;
   } | null;
   lender?: { id: string; nom: string; email: string } | null;
   borrower?: { id: string; nom: string; email: string } | null;
+};
+
+type PendingRequest = {
+  id: string;
+  id_item: string;
+  location_date: string;
+  return_date: string;
+  item?: {
+    serial_number: string;
+    model_materiel?: { nom: string } | null;
+  } | null;
+  lender?: { nom: string } | null;
 };
 
 type FormData = {
@@ -56,16 +69,15 @@ const LocationScreen = () => {
   const params = useLocalSearchParams();
 
   const [locations, setLocations] = useState<LocationWithDetails[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [availableItems, setAvailableItems] = useState<Item[]>([]);
   const [lenders, setLenders] = useState<User[]>([]);
   const [connectedUser, setConnectedUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showItemPicker, setShowItemPicker] = useState(false);
   const [showLenderPicker, setShowLenderPicker] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<{ locationId: string; itemId: string } | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [selectedQRSerial, setSelectedQRSerial] = useState("");
 
@@ -82,9 +94,10 @@ const LocationScreen = () => {
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true);
-      const user = await fetchConnectedUser(); // ← on récupère le profil
+      const user = await fetchConnectedUser();
       await Promise.all([
-        fetchLocations(user?.id),             // ← on le passe directement
+        fetchLocations(user?.id),
+        fetchPendingRequests(user?.id),
         fetchAvailableItems(params.itemId as string | undefined),
         fetchLenders(),
       ]);
@@ -116,7 +129,7 @@ const LocationScreen = () => {
         nomEmprunteur: profile.nom,
         emailEmprunteur: profile.email,
       }));
-      return profile;   // ← nouveau
+      return profile;
     } catch (err) {
       console.error("Erreur fetchConnectedUser:", err);
       return null;
@@ -136,6 +149,7 @@ const LocationScreen = () => {
           return_date,
           effective_return_date,
           return_state,
+          statut,
           item:items (
             serial_number,
             model_materiel ( nom )
@@ -143,10 +157,10 @@ const LocationScreen = () => {
           lender:users!Location_id_lender_fkey ( id, nom, email ),
           borrower:users!Location_id_borrower_fkey ( id, nom, email )
         `)
-        .is("effective_return_date", null); // ← locations non terminées seulement
+        .eq("statut", "active")              // ← locations validées uniquement
+        .is("effective_return_date", null);  // ← non terminées seulement
 
       if (userId) {
-        // ← prêteur OU emprunteur
         query = query.or(`id_lender.eq.${userId},id_borrower.eq.${userId}`);
       }
 
@@ -166,6 +180,40 @@ const LocationScreen = () => {
       setLocations(formatted);
     } catch (err) {
       console.error("Erreur fetchLocations:", err);
+    }
+  };
+
+  const fetchPendingRequests = async (userId?: string) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from("Location")
+        .select(`
+          id,
+          id_item,
+          location_date,
+          return_date,
+          item:items ( serial_number, model_materiel ( nom ) ),
+          lender:users!Location_id_lender_fkey ( nom )
+        `)
+        .eq("statut", "en_attente")
+        .eq("id_borrower", userId)
+        .order("id", { ascending: true });
+
+      if (error) {
+        console.error("Erreur fetchPendingRequests:", error);
+        return;
+      }
+
+      const formatted: PendingRequest[] = (data || []).map((r: any) => ({
+        ...r,
+        item: Array.isArray(r.item) ? r.item[0] : r.item,
+        lender: Array.isArray(r.lender) ? r.lender[0] : r.lender,
+      }));
+
+      setPendingRequests(formatted);
+    } catch (err) {
+      console.error("Erreur fetchPendingRequests:", err);
     }
   };
 
@@ -191,7 +239,6 @@ const LocationScreen = () => {
 
       setAvailableItems(formatted);
 
-      // On set l'itemId APRÈS que availableItems soit peuplé
       if (prefillId) {
         setFormData((prev) => ({ ...prev, itemId: prefillId }));
       }
@@ -219,19 +266,11 @@ const LocationScreen = () => {
     }
   };
 
-  // ---- VALIDATION ----
+  // ---- VALIDATION DU FORMULAIRE ----
 
   const validateForm = (): boolean => {
     if (!formData.lenderId) {
-      Alert.alert("Erreur", "Veuillez sélectionner un prêteur");
-      return false;
-    }
-    if (!formData.nomEmprunteur.trim()) {
-      Alert.alert("Erreur", "Le nom de l'emprunteur est requis");
-      return false;
-    }
-    if (!formData.emailEmprunteur.trim()) {
-      Alert.alert("Erreur", "L'email de l'emprunteur est requis");
+      Alert.alert("Erreur", "Veuillez sélectionner un prêteur ILIA");
       return false;
     }
     if (!formData.itemId) {
@@ -249,58 +288,42 @@ const LocationScreen = () => {
     return true;
   };
 
-  // ---- CRÉATION D'UNE LOCATION ----
+  // ---- SOUMISSION D'UNE DEMANDE ----
 
   const handleSubmit = async () => {
+    if (!connectedUser) {
+      Alert.alert("Erreur", "Vous devez être connecté pour faire une demande");
+      return;
+    }
     if (!validateForm()) return;
     setSubmitting(true);
 
     try {
-      let { data: existingUser, error: searchError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", formData.emailEmprunteur)
+      // 1. Réserver l'item pour bloquer les doublons
+      const { data: itemData, error: updateItemError } = await supabase
+        .from("items")
+        .update({ status: "réservé" })
+        .eq("id", formData.itemId)
+        .select()
         .maybeSingle();
 
-      if (searchError) throw searchError;
-
-      let borrowerId: string;
-      if (!existingUser) {
-        const { data: newUser, error: createError } = await supabase
-          .from("users")
-          .insert([{
-            nom: formData.nomEmprunteur,
-            email: formData.emailEmprunteur,
-            member_ILIA: false,
-          }])
-          .select("id")
-          .single();
-
-        if (createError) throw createError;
-        if (!newUser) throw new Error("L'utilisateur a été créé mais aucun ID n'a été renvoyé.");
-        borrowerId = newUser.id;
-      } else {
-        borrowerId = existingUser.id;
-      }
-
-      const { error: updateItemError } = await supabase
-        .from("items")
-        .update({ status: "loué" })
-        .eq("id", formData.itemId);
-
       if (updateItemError) throw updateItemError;
+      if (!itemData) throw new Error("Impossible de réserver l'item (RLS ?)");
 
+      // 2. Créer la demande en attente
       const { error: locationError } = await supabase
         .from("Location")
         .insert([{
           id_item: formData.itemId,
           id_lender: formData.lenderId,
-          id_borrower: borrowerId,
+          id_borrower: connectedUser.id,
           location_date: formData.locationDate,
           return_date: formData.returnDate,
+          statut: "en_attente",
         }]);
 
       if (locationError) {
+        // Rollback du statut de l'item
         await supabase
           .from("items")
           .update({ status: "disponible" })
@@ -308,23 +331,26 @@ const LocationScreen = () => {
         throw locationError;
       }
 
-      Alert.alert("Succès", "Location créée avec succès");
+      Alert.alert(
+        "Demande envoyée ✅",
+        "Votre demande de location est en attente de validation par un membre ILIA."
+      );
 
       setFormData({
         lenderId: "",
-        nomEmprunteur: connectedUser?.nom || "",
-        emailEmprunteur: connectedUser?.email || "",
+        nomEmprunteur: connectedUser.nom,
+        emailEmprunteur: connectedUser.email,
         itemId: "",
         locationDate: "",
         returnDate: "",
       });
       setShowForm(false);
 
-      await fetchLocations(connectedUser?.id);
+      await fetchPendingRequests(connectedUser.id);
       await fetchAvailableItems();
-    } catch (err) {
-      console.error("Erreur création location:", err);
-      Alert.alert("Erreur", "Une erreur est survenue lors de la création");
+    } catch (err: any) {
+      console.error("Erreur soumission demande:", err);
+      Alert.alert("Erreur", err?.message || "Une erreur est survenue lors de la soumission");
     } finally {
       setSubmitting(false);
     }
@@ -360,15 +386,19 @@ const LocationScreen = () => {
           onPress={() => setShowForm(!showForm)}
         >
           <Text style={styles.toggleButtonText}>
-            {showForm ? "Masquer le formulaire" : "Nouvelle location"}
+            {showForm ? "Masquer le formulaire" : "Nouvelle demande de location"}
           </Text>
         </TouchableOpacity>
 
         {/* ---- FORMULAIRE ---- */}
         {showForm && (
           <View style={styles.formContainer}>
-            <Text style={styles.formTitle}>Nouvelle location</Text>
+            <Text style={styles.formTitle}>Nouvelle demande</Text>
+            <Text style={styles.formNote}>
+              Votre demande sera examinée par un membre ILIA avant d'être activée.
+            </Text>
 
+            {/* Prêteur */}
             <TouchableOpacity
               style={styles.pickerButton}
               onPress={() => setShowLenderPicker(true)}
@@ -379,13 +409,13 @@ const LocationScreen = () => {
               <Text style={styles.pickerArrow}>▼</Text>
             </TouchableOpacity>
 
+            {/* Emprunteur (pré-rempli, non modifiable) */}
             <TextInput
               style={[styles.input, styles.inputDisabled]}
               placeholder="Nom de l'emprunteur"
               value={formData.nomEmprunteur}
               editable={false}
             />
-
             <TextInput
               style={[styles.input, styles.inputDisabled]}
               placeholder="Email de l'emprunteur"
@@ -394,6 +424,7 @@ const LocationScreen = () => {
               keyboardType="email-address"
             />
 
+            {/* Appareil */}
             <TouchableOpacity
               style={styles.pickerButton}
               onPress={() => setShowItemPicker(true)}
@@ -410,7 +441,6 @@ const LocationScreen = () => {
               value={formData.locationDate}
               onChangeText={(v) => setFormData((p) => ({ ...p, locationDate: v }))}
             />
-
             <TextInput
               style={styles.input}
               placeholder="Date de retour prévue (YYYY-MM-DD)"
@@ -424,7 +454,7 @@ const LocationScreen = () => {
               disabled={submitting}
             >
               <Text style={styles.submitButtonText}>
-                {submitting ? "Création en cours..." : "Créer la location"}
+                {submitting ? "Envoi en cours..." : "Envoyer la demande"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -454,7 +484,7 @@ const LocationScreen = () => {
                     key={lender.id}
                     style={[
                       styles.modalOption,
-                      formData.lenderId === lender.id && styles.modalOptionSelected,
+                      String(formData.lenderId) === String(lender.id) && styles.modalOptionSelected,
                     ]}
                     onPress={() => {
                       setFormData((p) => ({ ...p, lenderId: lender.id }));
@@ -494,7 +524,7 @@ const LocationScreen = () => {
                     key={item.id}
                     style={[
                       styles.modalOption,
-                      formData.itemId === item.id && styles.modalOptionSelected,
+                      String(formData.itemId) === String(item.id) && styles.modalOptionSelected,
                     ]}
                     onPress={() => {
                       setFormData((p) => ({ ...p, itemId: item.id }));
@@ -512,13 +542,41 @@ const LocationScreen = () => {
           </View>
         </Modal>
 
-        {/* ---- LISTE DES LOCATIONS ---- */}
+        {/* ---- DEMANDES EN ATTENTE ---- */}
+        {pendingRequests.length > 0 && (
+          <>
+            <Text style={styles.subtitle}>Mes demandes en attente</Text>
+            <View style={{ marginBottom: 8 }}>
+              {pendingRequests.map((req) => (
+                <View key={req.id} style={styles.pendingCard}>
+                  <View style={styles.pendingCardTop}>
+                    <Text style={styles.cardTitle}>
+                      {req.item?.model_materiel?.nom || "Appareil inconnu"}
+                    </Text>
+                    <View style={styles.pendingBadge}>
+                      <Text style={styles.pendingBadgeText}>⏳ En attente</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardText}>N° série : {req.item?.serial_number || "—"}</Text>
+                  <Text style={styles.cardText}>Prêteur : {req.lender?.nom || "—"}</Text>
+                  <Text style={styles.cardText}>Date de prêt : {req.location_date}</Text>
+                  <Text style={styles.cardText}>Retour prévu : {req.return_date}</Text>
+                  <Text style={styles.pendingNote}>
+                    Un membre ILIA doit valider cette demande avant que la location soit active.
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ---- LOCATIONS ACTIVES ---- */}
         <Text style={styles.subtitle}>Locations en cours</Text>
 
         <View style={{ marginBottom: 20 }}>
           {locations.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Aucune location en cours</Text>
+              <Text style={styles.emptyText}>Aucune location active en cours</Text>
             </View>
           ) : (
             locations.map((item) => (
@@ -599,31 +657,140 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: "bold", marginBottom: 20, color: "#1e293b" },
   subtitle: { fontSize: 20, fontWeight: "bold", marginTop: 24, marginBottom: 12, color: "#1e293b" },
 
-  toggleButton: { backgroundColor: "#2563eb", borderRadius: 8, paddingVertical: 12, alignItems: "center", marginBottom: 20 },
+  toggleButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginBottom: 20,
+  },
   toggleButtonText: { color: "#ffffff", fontWeight: "600", fontSize: 16 },
 
-  formContainer: { backgroundColor: "#f8fafc", padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: "#e2e8f0" },
-  formTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 16, textAlign: "center", color: "#1e293b" },
-  input: { backgroundColor: "white", padding: 14, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: "#cbd5e1", fontSize: 15, color: "#1e293b" },
+  formContainer: {
+    backgroundColor: "#f8fafc",
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  formTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 6,
+    textAlign: "center",
+    color: "#1e293b",
+  },
+  formNote: {
+    fontSize: 13,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  input: {
+    backgroundColor: "white",
+    padding: 14,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    fontSize: 15,
+    color: "#1e293b",
+  },
   inputDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", color: "#64748b" },
 
-  pickerButton: { backgroundColor: "white", padding: 14, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: "#cbd5e1", flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  pickerButton: {
+    backgroundColor: "white",
+    padding: 14,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   pickerTextSelected: { fontSize: 15, color: "#1e293b", flex: 1 },
   pickerTextPlaceholder: { fontSize: 15, color: "#94a3b8", flex: 1 },
   pickerArrow: { color: "#64748b", fontSize: 12 },
 
-  submitButton: { backgroundColor: "#2563eb", padding: 14, borderRadius: 8, alignItems: "center", marginTop: 8 },
+  submitButton: {
+    backgroundColor: "#2563eb",
+    padding: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 8,
+  },
   submitButtonDisabled: { backgroundColor: "#93c5fd" },
   submitButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 
-  card: { backgroundColor: "#f0f9ff", padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#bae6fd" },
+  // Carte demande en attente
+  pendingCard: {
+    backgroundColor: "#fffbeb",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  pendingCardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 6,
+  },
+  pendingBadge: {
+    backgroundColor: "#fef3c7",
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  pendingBadgeText: { color: "#92400e", fontSize: 11, fontWeight: "700" },
+  pendingNote: {
+    fontSize: 12,
+    color: "#92400e",
+    marginTop: 8,
+    fontStyle: "italic",
+  },
+
+  // Carte location active
+  card: {
+    backgroundColor: "#f0f9ff",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+  },
   cardTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 8, color: "#0c4a6e" },
   cardText: { fontSize: 14, color: "#334155", marginBottom: 2 },
   returnState: { marginTop: 6, fontWeight: "600", color: "#0369a1" },
 
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { backgroundColor: "white", borderRadius: 12, width: "90%", maxHeight: "70%", overflow: "hidden" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    width: "90%",
+    maxHeight: "70%",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
   modalTitle: { fontSize: 17, fontWeight: "bold", color: "#1e293b" },
   modalClose: { fontSize: 20, color: "#64748b", padding: 4 },
   modalOption: { padding: 16, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
@@ -631,27 +798,18 @@ const styles = StyleSheet.create({
   modalOptionText: { fontSize: 15, fontWeight: "600", color: "#1e293b" },
   modalOptionSubText: { fontSize: 13, color: "#64748b", marginTop: 2 },
 
-  navButton: { backgroundColor: "#059669", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginVertical: 24 },
+  navButton: {
+    backgroundColor: "#059669",
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginVertical: 24,
+  },
   navButtonText: { color: "#ffffff", fontWeight: "600", fontSize: 16 },
 
   emptyState: { alignItems: "center", paddingVertical: 30 },
   emptyText: { color: "#64748b", fontSize: 15, textAlign: "center", padding: 20 },
 
-  deleteButton: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fca5a5", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", marginTop: 15 },
-  deleteButtonDisabled: { backgroundColor: "#f3f4f6", borderColor: "#e5e7eb", opacity: 0.6 },
-  deleteButtonText: { color: "#dc2626", fontSize: 15, fontWeight: "600" },
-
-  alertOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
-  alertBox: { backgroundColor: "#ffffff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 400, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
-  alertIconContainer: { backgroundColor: "#fee2e2", width: 50, height: 50, borderRadius: 25, justifyContent: "center", alignItems: "center", marginBottom: 16 },
-  alertIcon: { fontSize: 24 },
-  alertTitle: { fontSize: 20, fontWeight: "bold", color: "#1f2937", marginBottom: 10, textAlign: "center" },
-  alertMessage: { fontSize: 15, color: "#4b5563", textAlign: "center", marginBottom: 24, lineHeight: 22 },
-  alertButtonsContainer: { flexDirection: "row", justifyContent: "space-between", width: "100%", gap: 12 },
-  alertCancelButton: { flex: 1, backgroundColor: "#f3f4f6", paddingVertical: 14, borderRadius: 12, alignItems: "center" },
-  alertCancelText: { color: "#374151", fontSize: 16, fontWeight: "600" },
-  alertConfirmButton: { flex: 1, backgroundColor: "#ef4444", paddingVertical: 14, borderRadius: 12, alignItems: "center" },
-  alertConfirmText: { color: "#ffffff", fontSize: 16, fontWeight: "bold" },
   qrButton: {
     borderWidth: 1,
     borderColor: "#a5b4fc",

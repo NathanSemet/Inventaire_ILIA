@@ -75,7 +75,8 @@ export default function AdminReturnsScreen() {
           lender:users!Location_id_lender_fkey(nom)
         `)
         .lt("return_date", today)
-        .is("effective_return_date", null);
+        .is("effective_return_date", null)
+        .eq("statut", "active");
 
       if (error) throw error;
 
@@ -131,6 +132,7 @@ export default function AdminReturnsScreen() {
         .from("items")
         .select("id, serial_number, status, model_materiel(nom)")
         .eq("serial_number", rawSerial.trim())
+
         .maybeSingle();
 
       if (itemError) throw itemError;
@@ -153,6 +155,7 @@ export default function AdminReturnsScreen() {
         `)
         .eq("id_item", itemData.id)
         .is("effective_return_date", null)
+        .eq("statut", "active")   
         .maybeSingle();
 
       if (locError) throw locError;
